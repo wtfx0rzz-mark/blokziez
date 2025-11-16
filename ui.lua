@@ -4,7 +4,7 @@ local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/rel
 local Players = game:GetService("Players")
 local lp = Players.LocalPlayer
 
-local Window = WindUI:Window({
+local Window = WindUI:CreateWindow({
     Title = "1337 Nights",
     Icon = "moon",
     Author = "Mark",
@@ -16,19 +16,17 @@ local Window = WindUI:Window({
     SideBarWidth = 150,
     HideSearchBar = false,
     ScrollBarEnabled = true,
-    Buttons = {
-        User = {
-            Text = "User",
-            Icon = "user",
-            Callback = function()
-                WindUI:Notify({
-                    Title = "User",
-                    Content = "Logged In As: " .. (lp and (lp.DisplayName or lp.Name) or "Unknown"),
-                    Duration = 4,
-                    Icon = "user"
-                })
-            end,
-        },
+    User = {
+        Enabled = true,
+        Anonymous = false,
+        Callback = function()
+            WindUI:Notify({
+                Title = "User Info",
+                Content = "Logged In As: " .. (lp.DisplayName or lp.Name),
+                Duration = 3,
+                Icon = "user"
+            })
+        end,
     },
 })
 

@@ -7,11 +7,12 @@ end
 
 local UI = (function()
     local ok, ret = pcall(function()
-        return loadstring(httpget("https://raw.githubusercontent.com/USERNAME/REPO/refs/heads/main/ui.lua"))()
+        return loadstring(httpget("https://raw.githubusercontent.com/wtfx0rzz-mark/blokziez/refs/heads/main/ui.lua"))()
     end)
     if ok and type(ret) == "table" then
         return ret
     end
+    warn("ui.lua load error: " .. tostring(ret))
     error("ui.lua failed to load")
 end)()
 
@@ -31,9 +32,9 @@ _G.R = _G.R or {}
 _G.UI = UI
 
 local paths = {
-    Main = "https://raw.githubusercontent.com/USERNAME/REPO/refs/heads/main/tab_main.lua",
-    Combat = "https://raw.githubusercontent.com/USERNAME/REPO/refs/heads/main/tab_combat.lua",
-    Misc = "https://raw.githubusercontent.com/USERNAME/REPO/refs/heads/main/tab_misc.lua",
+    Main = "https://raw.githubusercontent.com/wtfx0rzz-mark/blokziez/refs/heads/main/tab_main.lua",
+    Combat = "https://raw.githubusercontent.com/wtfx0rzz-mark/blokziez/refs/heads/main/tab_combat.lua",
+    Misc = "https://raw.githubusercontent.com/wtfx0rzz-mark/blokziez/refs/heads/main/tab_misc.lua",
 }
 
 for name, url in pairs(paths) do
