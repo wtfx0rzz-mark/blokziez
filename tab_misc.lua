@@ -1,64 +1,88 @@
--- FILE: tab_misc.lua  (Troll tab)
--- Attach to Tabs.Troll and provide a Block Deletion toggle
+--=====================================================
+-- tab_misc.lua  (Troll tab)
+--=====================================================
 
 return function(C, R, UI)
     C  = C  or _G.C
     R  = R  or _G.R
     UI = UI or _G.UI
 
-    local Tabs = (UI and UI.Tabs) or {}
-    local tab  = Tabs.Troll
-    if not tab then
+    if not UI or not UI.Tabs then
+        warn("Troll tab: UI or UI.Tabs is missing")
         return
     end
 
-    -- Ensure state table exists
-    C.State = C.State or {}
-
-    -- Helper to enable/disable block deletion behavior
-    local function setBlockDeletionEnabled(enabled)
-        C.State.BlockDeletionEnabled = enabled
-
-        -- Optional runtime helper; safe to call if present
-        local helper = R and R.BlockDeletionHelper
-        if type(helper) == "function" then
-            local ok, err = pcall(helper, enabled)
-            if not ok then
-                warn("BlockDeletionHelper error: " .. tostring(err))
-            end
-        end
+    local tab = UI.Tabs.Troll
+    if not tab then
+        warn("Troll tab: Tabs.Troll not found")
+        return
     end
 
-    local trollSection = tab:Section({
-        Title = "Troll Options",
-        Icon  = "settings",
+    C.State = C.State or {}
+
+    -- Optional info paragraph at top
+    local infoParagraph = tab:Paragraph({
+        Title     = "Troll Utilities",
+        Desc      = "Use these tools in your own worlds to delete placed blocks.",
+        Color     = "Red",
+        Image     = "",
+        ImageSize = 0,
+        Thumbnail = "",
+        ThumbnailSize = 0,
+        Locked    = false,
+        Buttons   = {},
     })
 
-    -- Info text (WindUI uses Paragraph, not Label, on sections)
-    trollSection:Paragraph({
-        Title = "Info",
-        Icon  = "info",
-        Desc  = "Troll tab is ready. Add utility features here.",
-    })
+    -- Main toggle to control your block deletion logic
+    local blockDeletionToggle = tab:Toggle({
+        Title   = "Block Deletion",
+        Desc    = "Enable / disable the block deletion script.",
+        Icon    = "trash",
+        Type    = "Checkbox",
+        Value   = false,
+        Callback = function(enabled)
+            C.State.BlockDeletionEnabled = enabled
 
-    trollSection:Toggle({
-        Name    = "Block Deletion",
-        Default = false,
-        Callback = function(value)
-            setBlockDeletionEnabled(value)
+            -- If you’ve implemented helper logic, wire it here
+            if R and type(R.BlockDeletionHelper) == "function" then
+                -- true  => start deletion
+                -- false => stop deletion
+                local ok, err = pcall(R.BlockDeletionHelper, enabled)
+                if not ok then
+                    warn("BlockDeletionHelper error: " .. tostring(err))
+                end
+            end
+
+            if UI and UI.Lib and UI.Lib.Notify then
+                UI.Lib:Notify({
+                    Title   = "Block Deletion",
+                    Content = enabled and "Block deletion ENABLED" or "Block deletion DISABLED",
+                    Duration = 3,
+                    Icon    = enabled and "check" or "x-circle",
+                })
+            end
         end,
     })
 
-    trollSection:Button({
-        Name = "Say Hello",
+    -- Optional manual “pulse” button if you want a one-shot call
+    local pulseButton = tab:Button({
+        Title    = "Run Deletion Once",
+        Desc     = "Invoke a single deletion pass (if helper is implemented).",
+        Icon     = "zap",
         Callback = function()
-            local lib = UI and UI.Lib
-            if lib and type(lib.Notify) == "function" then
-                lib:Notify({
-                    Title   = "Hello",
-                    Content = "Troll tab button clicked.",
+            if R and type(R.BlockDeletionHelper) == "function" then
+                local ok, err = pcall(R.BlockDeletionHelper, true)
+                if not ok then
+                    warn("BlockDeletionHelper one-shot error: " .. tostring(err))
+                end
+            end
+
+            if UI and UI.Lib and UI.Lib.Notify then
+                UI.Lib:Notify({
+                    Title   = "Troll",
+                    Content = "One-shot block deletion invoked.",
                     Duration = 3,
-                    Icon    = "info",
+                    Icon    = "zap",
                 })
             end
         end,
