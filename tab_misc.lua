@@ -34,7 +34,12 @@ return function(C, R, UI)
         Icon  = "settings",
     })
 
-    trollSection:Label("Troll tab is ready. Add utility features here.")
+    -- Info text (WindUI uses Paragraph, not Label, on sections)
+    trollSection:Paragraph({
+        Title = "Info",
+        Icon  = "info",
+        Desc  = "Troll tab is ready. Add utility features here.",
+    })
 
     trollSection:Toggle({
         Name    = "Block Deletion",
