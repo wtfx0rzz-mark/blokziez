@@ -39,6 +39,6 @@ return function(C, R, UI)
         Callback = function(enabled)
             -- Placeholder only; no behavior wired yet
             -- You can later hook this to your delete logic
-        end,
+        end
     })
 end
