@@ -34,8 +34,8 @@ Window:SetToggleKey(Enum.KeyCode.V)
 
 local Tabs = {
     Main = Window:Tab({ Title = "Main", Icon = "home", Desc = "Main controls" }),
-    Combat = Window:Tab({ Title = "Combat", Icon = "sword", Desc = "Combat options" }),
-    Misc = Window:Tab({ Title = "Misc", Icon = "settings", Desc = "Miscellaneous" }),
+    Build = Window:Tab({ Title = "Build", Icon = "sword", Desc = "Build options" }),
+    Troll = Window:Tab({ Title = "Troll", Icon = "settings", Desc = "Troll utilities" }),
 }
 
 return {

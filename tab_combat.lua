@@ -4,14 +4,14 @@ return function(C, R, UI)
     UI = UI or _G.UI
 
     local Tabs = (UI and UI.Tabs) or {}
-    local tab = Tabs.Combat
+    local tab = Tabs.Build
     if not tab then
         return
     end
 
-    local combatSection = tab:Section({ Title = "Combat Settings", Icon = "sword" })
+    local combatSection = tab:Section({ Title = "Build Settings", Icon = "sword" })
 
-    combatSection:Label("Combat tab is ready. Add combat features here.")
+    combatSection:Label("Build tab is ready. Add building features here.")
 
     combatSection:Slider({
         Name = "Example Damage",
