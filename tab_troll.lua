@@ -1,6 +1,8 @@
 -- tab_troll.lua
+-- Troll tab with "Delete Nearby Blocks" toggle wired to DestroyBlock
 
 return function(C, R, UI)
+    -- Fallback to globals if not passed
     C  = C  or _G.C
     R  = R  or _G.R
     UI = UI or _G.UI
@@ -16,9 +18,9 @@ return function(C, R, UI)
         return
     end
 
-    C.State = C.State or {}
-    local S = C.State
-
+    ------------------------------------------------
+    -- Services / player / remotes
+    ------------------------------------------------
     local Services = C.Services or {}
     local Players  = Services.Players or game:GetService("Players")
     local RS       = Services.RS      or game:GetService("ReplicatedStorage")
@@ -27,10 +29,32 @@ return function(C, R, UI)
 
     local lp = C.LocalPlayer or Players.LocalPlayer
 
-    local Destroy = RS:WaitForChild("Events"):WaitForChild("DestroyBlock")
+    local EventsFolder  = RS:WaitForChild("Events")
+    local DestroyBlock  = EventsFolder:WaitForChild("DestroyBlock")
 
+    C.State = C.State or {}
+    local S = C.State
+
+    ------------------------------------------------
+    -- Constants (match working standalone script)
+    ------------------------------------------------
+    local DELETE_RADIUS = 30       -- studs around player
+    local MAX_PER_TICK  = 200      -- safety cap per pass
+
+    ------------------------------------------------
+    -- Helpers
+    ------------------------------------------------
+    local function getHRP()
+        local char = lp.Character or lp.CharacterAdded:Wait()
+        return char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
+    end
+
+    -- We mirror the “buildRoots” logic from the working script
     local buildRoots = {}
-    do
+
+    local function refreshBuildRoots()
+        buildRoots = {}
+
         local built = WS:FindFirstChild("Built")
         if built then
             table.insert(buildRoots, built)
@@ -42,18 +66,24 @@ return function(C, R, UI)
         end
     end
 
-    local DELETE_RADIUS = 30
-    local MAX_PER_TICK  = 200
-
-    local function getHRP()
-        local char = lp.Character or lp.CharacterAdded:Wait()
-        return char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
-    end
+    refreshBuildRoots()
 
     local function deleteStep()
+        if not S.DeleteBlocksEnabled then
+            return
+        end
+
         local hrp = getHRP()
         if not hrp or not hrp.Parent then
             return
+        end
+
+        -- Ensure roots stay valid
+        if #buildRoots == 0 then
+            refreshBuildRoots()
+            if #buildRoots == 0 then
+                return
+            end
         end
 
         local origin  = hrp.Position
@@ -64,20 +94,23 @@ return function(C, R, UI)
                 return
             end
 
-            for _, inst in ipairs(root:GetDescendants()) do
-                if not S.DeleteBlocksEnabled then
-                    return
-                end
+            if root and root.Parent then
+                for _, inst in ipairs(root:GetDescendants()) do
+                    if not S.DeleteBlocksEnabled then
+                        return
+                    end
 
-                if inst:IsA("BasePart") then
-                    local dist = (inst.Position - origin).Magnitude
-                    if dist <= DELETE_RADIUS then
-                        pcall(function()
-                            Destroy:InvokeServer(inst)
-                        end)
-                        deleted += 1
-                        if deleted >= MAX_PER_TICK then
-                            return
+                    if inst:IsA("BasePart") then
+                        local dist = (inst.Position - origin).Magnitude
+                        if dist <= DELETE_RADIUS then
+                            pcall(function()
+                                DestroyBlock:InvokeServer(inst)
+                            end)
+
+                            deleted += 1
+                            if deleted >= MAX_PER_TICK then
+                                return
+                            end
                         end
                     end
                 end
@@ -85,6 +118,9 @@ return function(C, R, UI)
         end
     end
 
+    ------------------------------------------------
+    -- Background loop (runs every Heartbeat, no extra wait)
+    ------------------------------------------------
     local deleteLoopRunning = false
 
     local function startDeleteLoop()
@@ -96,35 +132,34 @@ return function(C, R, UI)
         task.spawn(function()
             while deleteLoopRunning and S.DeleteBlocksEnabled do
                 deleteStep()
-                Run.Heartbeat:Wait()
+                Run.Heartbeat:Wait()  -- no artificial delay, per your request
             end
             deleteLoopRunning = false
         end)
     end
 
     local function stopDeleteLoop()
-        deleteLoopRunning     = false
-        S.DeleteBlocksEnabled = false
+        deleteLoopRunning = false
     end
 
+    ------------------------------------------------
+    -- Troll tab UI
+    ------------------------------------------------
     tab:Paragraph({
         Title = "Troll Tab",
-        Desc  = "Use this tab for troll / utility features.",
+        Desc  = "Utility / troll helpers.",
         Color = "Blue",
     })
 
-    tab:Paragraph({
-        Title = "",
-        Desc  = "Delete Blocks:",
-        Color = "White",
-    })
-
     tab:Toggle({
-        Title    = "Auto Delete Nearby Blocks",
-        Value    = false,
+        Title = "Delete Nearby Blocks",
+        Value = false,
         Callback = function(enabled)
             S.DeleteBlocksEnabled = enabled and true or false
+
             if enabled then
+                -- Make sure roots are up to date when you enable
+                refreshBuildRoots()
                 startDeleteLoop()
             else
                 stopDeleteLoop()
