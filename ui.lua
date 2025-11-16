@@ -40,10 +40,17 @@ local Tabs = {
         Desc = "Main controls",
     }),
 
+    Build = Window:Tab({
+        Title = "Build",
+        Icon = "house",
+        Desc = "Build Controls",
+    }),
+}
+
     Troll = Window:Tab({
         Title = "Troll",
         Icon = "skull",
-        Desc = "Troll / utility controls",
+        Desc = "Troll / Utility Controls",
     }),
 }
 
