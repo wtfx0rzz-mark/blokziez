@@ -1,5 +1,5 @@
 -- tab_troll.lua
--- Minimal placeholder: one section + one toggle
+-- Minimal Troll tab: one section + one placeholder switch
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -17,18 +17,22 @@ return function(C, R, UI)
         return
     end
 
-    -- Simple section
-    local section = tab:Section({
+    -- Section header (matches style from your Auto tab)
+    tab:Section({
         Title = "Troll Controls",
         Icon  = "skull",
     })
 
-    -- Single placeholder toggle
-    section:Toggle({
-        Name    = "Placeholder Switch",
-        Default = false,
-        Callback = function(value)
-            -- no-op for now
+    -- Placeholder toggle (WindUI-style: tab:Toggle, using Title / Value / Callback)
+    tab:Toggle({
+        Title    = "Block Deletion (Placeholder)",
+        Value    = false,
+        Callback = function(enabled)
+            -- Placeholder only for now
+            -- Later you can wire this to your actual delete logic
+            if C and C.State then
+                C.State.BlockDeletionEnabled = enabled
+            end
         end,
     })
 end
