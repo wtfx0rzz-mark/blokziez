@@ -50,7 +50,7 @@ local Tabs = {
         Title = "Troll",
         Icon = "skull",
         Desc = "Troll / Utility Controls",
-    }),
+    })
 }
 
 return {
