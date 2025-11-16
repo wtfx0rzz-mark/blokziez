@@ -42,7 +42,7 @@ local Tabs = {
 
     Build = Window:Tab({
         Title = "Build",
-        Icon = "home", -- you can change this icon if you want
+        Icon = "home",
         Desc = "Build Controls",
     }),
 
