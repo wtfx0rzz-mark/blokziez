@@ -39,17 +39,12 @@ local paths = {
 }
 
 for name, url in pairs(paths) do
-    local okLoad, chunkOrErr = pcall(function()
-        local src = httpget(url)
-        return loadstring(src)
+    local ok, mod = pcall(function()
+        return loadstring(game:HttpGet(url))()
     end)
-
-    if not okLoad or type(chunkOrErr) ~= "function" then
-        warn("Module failed to load [" .. tostring(name) .. "] from " .. tostring(url) .. " : " .. tostring(chunkOrErr))
+    if ok and type(mod) == "function" then
+        pcall(mod, _G.C, _G.R, _G.UI)
     else
-        local okRun, err = pcall(chunkOrErr, _G.C, _G.R, _G.UI)
-        if not okRun then
-            warn("Module execution failed for [" .. tostring(name) .. "]: " .. tostring(err))
-        end
+        warn(("Failed to load module %s from %s"):format(name, url))
     end
 end
