@@ -1,5 +1,5 @@
 -- tab_troll.lua
--- Simple placeholder text for the Troll tab
+-- Troll tab with text + a simple "Delete Blocks" switch (no functionality yet)
 
 return function(C, R, UI)
     -- Fallback to globals if not passed
@@ -12,17 +12,33 @@ return function(C, R, UI)
         return
     end
 
-    local Tabs = UI.Tabs
-    local tab  = Tabs.Troll
+    local tab = UI.Tabs.Troll
     if not tab then
         warn("tab_troll.lua: Tabs.Troll not found")
         return
     end
 
-    -- Simple text-only content using a Paragraph element
+    -- Text at the top of the Troll tab
     tab:Paragraph({
         Title = "Troll Tab",
-        Desc  = "This is a placeholder for future troll / utility features.",
-        Color = "Blue",  -- any valid WindUI color name
+        Desc  = "Use this tab for troll / utility features.",
+        Color = "Blue",
+    })
+
+    -- Spacer paragraph (optional, just for a little vertical padding)
+    tab:Paragraph({
+        Title = "",
+        Desc  = "Delete Blocks:",
+        Color = "White",
+    })
+
+    -- Simple switch (WindUI-style Toggle, no functionality yet)
+    tab:Toggle({
+        Title    = "Delete Blocks",
+        Value    = false,
+        Callback = function(enabled)
+            -- Placeholder only; no behavior wired yet
+            -- You can later hook this to your delete logic
+        end,
     })
 end
