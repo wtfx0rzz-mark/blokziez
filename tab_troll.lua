@@ -43,11 +43,6 @@ return function(C, R, UI)
         return nv
     end
 
-    tab:Paragraph({
-        Title = "Troll / Utility",
-        Desc  = "Block utilities for Blokziez.",
-    })
-
     local DELETE_RADIUS_DEFAULT = 30
     local DELETE_MAX_PER_STEP   = 200
 
@@ -113,13 +108,8 @@ return function(C, R, UI)
         deleteLoopRunning = false
     end
 
-    tab:Paragraph({
-        Title = "Delete Blocks",
-        Desc  = "Automatically destroy nearby built blocks.",
-    })
-
     tab:Toggle({
-        Title = "Delete Blocks",
+        Title = "Delete Blocks Around Player",
         Value = false,
         Callback = function(enabled)
             C.State.DeleteBlocksEnabled = enabled and true or false
@@ -153,16 +143,6 @@ return function(C, R, UI)
         local z = originPos.Z + math.sin(theta) * r
         return Vector3.new(x, COLUMN_BASE_Y, z)
     end
-
-    tab:Paragraph({
-        Title = "",
-        Desc  = "",
-    })
-
-    tab:Paragraph({
-        Title = "Column Spam",
-        Desc  = "Spawn random columns of blocks around you.",
-    })
 
     local columnWorkersSpawned = false
 
@@ -217,7 +197,7 @@ return function(C, R, UI)
             if enabled and not columnWorkersSpawned then
                 columnWorkersSpawned = true
                 local workers = C.Config.ColumnWorkers or 40
-                for i = 1, workers do
+                for _ = 1, workers do
                     task.spawn(columnWorker)
                 end
             end
