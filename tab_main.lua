@@ -21,6 +21,7 @@ return function(C, R, UI)
     C.State  = C.State  or {}
     C.Config = C.Config or {}
     C.State.Toggles = C.State.Toggles or {}
+    C.State.AuraRadius = C.State.AuraRadius or 150
 
     ----------------------------------------------------------------------
     -- Helpers
@@ -419,6 +420,101 @@ return function(C, R, UI)
     end)
 
     ----------------------------------------------------------------------
+    -- Player highlight helpers (from visuals.lua)
+    ----------------------------------------------------------------------
+    local function auraRadius()
+        return math.clamp(tonumber(C.State.AuraRadius) or 150, 0, 1_000_000)
+    end
+
+    local function bestPart(model)
+        if not model or not model:IsA("Model") then return nil end
+        local hrpPart = model:FindFirstChild("HumanoidRootPart")
+        if hrpPart and hrpPart:IsA("BasePart") then return hrpPart end
+        if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
+            return model.PrimaryPart
+        end
+        return model:FindFirstChildWhichIsA("BasePart")
+    end
+
+    local function ensureHighlight(parent, name)
+        local hl = parent:FindFirstChild(name)
+        if hl and hl:IsA("Highlight") then return hl end
+        hl = Instance.new("Highlight")
+        hl.Name = name
+        hl.Adornee = parent
+        hl.FillTransparency = 1
+        hl.OutlineTransparency = 0
+        hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent = parent
+        return hl
+    end
+
+    local function clearHighlight(parent, name)
+        local hl = parent and parent:FindFirstChild(name)
+        if hl and hl:IsA("Highlight") then hl:Destroy() end
+    end
+
+    local runningPlayers = false
+    local PLAYER_HL_NAME = "__PlayerTrackerHL__"
+
+    local function trackPlayer(plr)
+        if plr == lp then return end
+        local function attach(ch)
+            if not ch then return end
+            local h = ensureHighlight(ch, PLAYER_HL_NAME)
+            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            h.Enabled = true
+        end
+        if plr.Character then attach(plr.Character) end
+        plr.CharacterAdded:Connect(attach)
+    end
+
+    local function startPlayerTracker()
+        if runningPlayers then return end
+        runningPlayers = true
+        for _, p in ipairs(Players:GetPlayers()) do trackPlayer(p) end
+        Players.PlayerAdded:Connect(trackPlayer)
+        task.spawn(function()
+            while runningPlayers do
+                local lch = lp.Character
+                local lhrp = lch and lch:FindFirstChild("HumanoidRootPart")
+                local R = auraRadius()
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= lp then
+                        local ch = plr.Character
+                        if ch then
+                            local h = ensureHighlight(ch, PLAYER_HL_NAME)
+                            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            h.Enabled = true
+                            if lhrp then
+                                local phrp = ch:FindFirstChild("HumanoidRootPart")
+                                local p0 = phrp and phrp.Position or (bestPart(ch) and bestPart(ch).Position)
+                                if p0 then
+                                    local d = (p0 - lhrp.Position).Magnitude
+                                    local t = math.clamp(d / math.max(R, 1), 0, 1)
+                                    h.FillTransparency    = 1 - (0.85 * t)  -- near: ~0.15, far: ~0.85
+                                    h.OutlineTransparency = 0.2 * (1 - t)   -- near: 0.2, far: 0.0
+                                end
+                            end
+                        end
+                    end
+                end
+                task.wait(0.25)
+            end
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= lp and plr.Character then
+                    clearHighlight(plr.Character, PLAYER_HL_NAME)
+                end
+            end
+        end)
+    end
+
+    local function stopPlayerTracker()
+        runningPlayers = false
+    end
+
+    ----------------------------------------------------------------------
     -- Fly
     ----------------------------------------------------------------------
     local flyEnabled       = false
@@ -709,13 +805,11 @@ return function(C, R, UI)
         end)
     end
 
-    private_disableInfJump = nil
     local function disableInfJump()
         infJumpOn = false
         disconnectConn(jumpConn)
         jumpConn = nil
     end
-    private_disableInfJump = disableInfJump
 
     ----------------------------------------------------------------------
     -- UI
@@ -916,6 +1010,28 @@ return function(C, R, UI)
             shockBtn.Visible = on
         end
     end)
+
+    ----------------------------------------------------------------------
+    -- Player highlight toggle (bottom of Main tab)
+    ----------------------------------------------------------------------
+    tab:Section({ Title = "Visuals", Icon = "eye" })
+
+    tab:Toggle({
+        Title = "Highlight Players",
+        Value = C.State.Toggles.PlayerTracker or false,
+        Callback = function(on)
+            C.State.Toggles.PlayerTracker = on
+            if on then
+                startPlayerTracker()
+            else
+                stopPlayerTracker()
+            end
+        end
+    })
+
+    if C.State.Toggles.PlayerTracker then
+        startPlayerTracker()
+    end
 
     ----------------------------------------------------------------------
     -- Character respawn handling
