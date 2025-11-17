@@ -266,6 +266,155 @@ return function(C, R, UI)
     })
 
     --------------------------------------------------------------------
+    -- Black Wool Infection (random spreading)
+    --------------------------------------------------------------------
+
+    local SPREAD_BLOCK             = "Black Wool"
+    local SPREAD_BLOCK_SIZE        = 4
+    local SPREAD_MAX_STEPS_PER_TICK = 5
+    local SPREAD_MAX_TOTAL_BLOCKS  = 800
+
+    C.State.SpreadEnabled = C.State.SpreadEnabled or false
+
+    local spreadFrontier = {}
+    local spreadVisited  = {}
+    local spreadConn     = nil
+    local spreadCount    = 0
+
+    local spreadRayParams = RaycastParams.new()
+    spreadRayParams.FilterType  = Enum.RaycastFilterType.Blacklist
+    spreadRayParams.IgnoreWater = true
+
+    local function gridKey(gx, gy, gz)
+        return string.format("%d:%d:%d", gx, gy, gz)
+    end
+
+    local function worldToGrid(pos)
+        local s = SPREAD_BLOCK_SIZE
+        local gx = math.floor(pos.X / s + 0.5)
+        local gy = math.floor(pos.Y / s + 0.5)
+        local gz = math.floor(pos.Z / s + 0.5)
+        return gx, gy, gz
+    end
+
+    local function gridToWorld(gx, gy, gz)
+        local s = SPREAD_BLOCK_SIZE
+        return Vector3.new(gx * s, gy * s, gz * s)
+    end
+
+    local function seedSpread()
+        spreadFrontier = {}
+        spreadVisited  = {}
+        spreadCount    = 0
+
+        if not (Place and baseplate) then return end
+
+        local hrp = getHRP()
+        if not hrp then return end
+
+        spreadRayParams.FilterDescendantsInstances = { lp.Character }
+
+        local origin = hrp.Position
+        local result = WS:Raycast(origin, Vector3.new(0, -100, 0), spreadRayParams)
+
+        local hitPos = result and result.Position or Vector3.new(origin.X, origin.Y - 5, origin.Z)
+        local gx, gy, gz = worldToGrid(hitPos)
+        local centerPos  = gridToWorld(gx, gy, gz)
+        local key        = gridKey(gx, gy, gz)
+
+        spreadVisited[key] = true
+        table.insert(spreadFrontier, { gx = gx, gy = gy, gz = gz })
+
+        pcall(function()
+            Place:InvokeServer(SPREAD_BLOCK, CFrame.new(centerPos), baseplate)
+        end)
+        spreadCount = 1
+    end
+
+    local neighborDirs = {
+        {  1,  0,  0 },
+        { -1,  0,  0 },
+        {  0,  1,  0 },
+        {  0, -1,  0 },
+        {  0,  0,  1 },
+        {  0,  0, -1 },
+    }
+
+    local function spreadStep()
+        if not (Place and baseplate) then return end
+        if spreadCount >= SPREAD_MAX_TOTAL_BLOCKS then
+            C.State.SpreadEnabled = false
+            return
+        end
+
+        local steps = 0
+
+        while steps < SPREAD_MAX_STEPS_PER_TICK and #spreadFrontier > 0 do
+            steps += 1
+
+            -- pick random frontier cell
+            local idx  = math.random(1, #spreadFrontier)
+            local cell = spreadFrontier[idx]
+
+            local dir  = neighborDirs[math.random(1, #neighborDirs)]
+            local ngx  = cell.gx + dir[1]
+            local ngy  = cell.gy + dir[2]
+            local ngz  = cell.gz + dir[3]
+
+            local key  = gridKey(ngx, ngy, ngz)
+            if not spreadVisited[key] then
+                spreadVisited[key] = true
+
+                local pos = gridToWorld(ngx, ngy, ngz)
+
+                pcall(function()
+                    Place:InvokeServer(SPREAD_BLOCK, CFrame.new(pos), baseplate)
+                end)
+
+                spreadCount += 1
+                table.insert(spreadFrontier, { gx = ngx, gy = ngy, gz = ngz })
+
+                if spreadCount >= SPREAD_MAX_TOTAL_BLOCKS then
+                    C.State.SpreadEnabled = false
+                    break
+                end
+            end
+        end
+    end
+
+    local function startSpread()
+        if spreadConn or not Place or not baseplate then return end
+
+        C.State.SpreadEnabled = true
+        seedSpread()
+
+        spreadConn = Run.Heartbeat:Connect(function()
+            if not C.State.SpreadEnabled then return end
+            spreadStep()
+        end)
+    end
+
+    local function stopSpread()
+        C.State.SpreadEnabled = false
+        if spreadConn then
+            spreadConn:Disconnect()
+            spreadConn = nil
+        end
+    end
+
+    tab:Toggle({
+        Title = "Black Wool Infection",
+        Value = C.State.SpreadEnabled or false,
+        Callback = function(enabled)
+            if enabled then
+                startSpread()
+            else
+                stopSpread()
+            end
+        end,
+    })
+
+    --------------------------------------------------------------------
     -- Column spam (always Black Wool)
     --------------------------------------------------------------------
 
