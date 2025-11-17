@@ -1,5 +1,5 @@
 -- tab_build.lua
--- Blokziez • Build tab: material picker + basic houses
+-- Blokziez • Build tab: material dropdown + house builder
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -8,13 +8,11 @@ return function(C, R, UI)
 
     assert(UI and UI.Tabs and UI.Tabs.Build, "tab_build.lua: Build tab missing")
 
-    local tab = UI.Tabs.Build
-
+    local tab      = UI.Tabs.Build
     local Services = C.Services or {}
-    local Players  = Services.Players  or game:GetService("Players")
-    local RS       = Services.RS       or game:GetService("ReplicatedStorage")
-    local WS       = Services.WS       or game:GetService("Workspace")
-    local Run      = Services.Run      or game:GetService("RunService")
+    local Players  = Services.Players or game:GetService("Players")
+    local RS       = Services.RS      or game:GetService("ReplicatedStorage")
+    local WS       = Services.WS      or game:GetService("Workspace")
 
     local lp = C.LocalPlayer or Players.LocalPlayer
 
@@ -33,28 +31,27 @@ return function(C, R, UI)
         return char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
     end
 
-    local function placeBlock(blockName, cf)
-        if not (Place and blockName and cf) then return end
+    local function extractNumber(v, min, max, default)
+        local nv = v
+        if type(v) == "table" then
+            nv = v.Value or v.Current or v.CurrentValue or v.Default or v.min or v.max
+        end
+        nv = tonumber(nv) or default
+        if min and max and nv then
+            nv = math.clamp(nv, min, max)
+        end
+        return nv
+    end
+
+    local function safePlace(blockName, cf)
+        if not (Place and baseplate and blockName) then return end
         pcall(function()
             Place:InvokeServer(blockName, cf, baseplate)
         end)
     end
 
-    -- Raycast straight down from a point to find the ground
-    local function findGroundBelow(origin)
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = { lp.Character }
-
-        local result = WS:Raycast(origin, Vector3.new(0, -200, 0), params)
-        if result then
-            return result.Position
-        end
-        return nil
-    end
-
     ----------------------------------------------------------------------
-    -- Block material list (from your backpack log)
+    -- Block dropdown
     ----------------------------------------------------------------------
     local BLOCK_TYPES = {
         "Birch Log",
@@ -141,120 +138,151 @@ return function(C, R, UI)
         "Blue Wool",
     }
 
-    local defaultBlock = C.Config.SelectedBuildMaterial or BLOCK_TYPES[1]
+    -- Default selected block
+    C.Config.BuildBlockName = C.Config.BuildBlockName or "Oak Planks"
 
-    tab:Section({ Title = "Build Material", Icon = "box" })
+    tab:Section({ Title = "Block Type", Icon = "box" })
 
     tab:Dropdown({
-        Title   = "Block Type",
+        Title   = "Material",
         Values  = BLOCK_TYPES,
-        Default = defaultBlock,
-        Callback = function(selected)
-            if selected then
-                C.Config.SelectedBuildMaterial = selected
+        Multi   = false,
+        Default = C.Config.BuildBlockName,
+        Callback = function(choice)
+            local value = choice
+            if type(choice) == "table" then
+                value = choice[1] or choice.Value or choice.Current
+            end
+            if typeof(value) == "string" then
+                C.Config.BuildBlockName = value
             end
         end
     })
 
     ----------------------------------------------------------------------
-    -- House builder
+    -- Ground detection (fix floating houses)
     ----------------------------------------------------------------------
-    -- We assume world is on a 4x4x4 grid
-    local GRID_STEP   = 4
-    local BLOCK_STEP_Y = 4
+    local HOUSE_BLOCK_HEIGHT = 4 -- assume 4x4x4 style building blocks
 
-    local function snapToGrid(v)
-        return Vector3.new(
-            math.floor(v.X / GRID_STEP + 0.5) * GRID_STEP,
-            v.Y,
-            math.floor(v.Z / GRID_STEP + 0.5) * GRID_STEP
-        )
-    end
-
-    local function buildHouse(sizePreset)
-        if not Place then return end
-
-        local blockName = C.Config.SelectedBuildMaterial or defaultBlock
-        if not blockName then return end
-
+    local function getBuildBase()
         local hrp = getHRP()
-        if not hrp then return end
+        if not hrp then return nil, nil end
 
-        -- Find ground directly below the player and snap XZ to grid
-        local originAbove = hrp.Position + Vector3.new(0, 10, 0)
-        local groundPos   = findGroundBelow(originAbove) or (hrp.Position - Vector3.new(0, 4, 0))
+        local origin = hrp.Position + Vector3.new(0, 5, 0)
+        local dir    = Vector3.new(0, -1, 0) * 100
 
-        local centerXZ = snapToGrid(Vector3.new(groundPos.X, 0, groundPos.Z))
+        local params = RaycastParams.new()
+        params.FilterType               = Enum.RaycastFilterType.Exclude
+        params.IgnoreWater              = true
+        params.FilterDescendantsInstances = { lp.Character }
 
-        -- Fix for floating: use the ground Y as our floor center Y minus a small nudge
-        -- so the blocks visually sit on the ground instead of hovering.
-        local floorY = groundPos.Y - 0.1  -- slight downward nudge so there is no visible gap
+        local result = WS:Raycast(origin, dir, params)
+        local baseY
 
-        local cfg
-        if sizePreset == "Small" then
-            cfg = { halfSize = 3, height = 3 }
-        elseif sizePreset == "Medium" then
-            cfg = { halfSize = 4, height = 4 }
-        elseif sizePreset == "Large" then
-            cfg = { halfSize = 5, height = 5 }
+        if result and result.Position then
+            -- result.Position.Y is on the surface of the floor block
+            -- We want our block center to sit on top: + half block height
+            baseY = result.Position.Y + (HOUSE_BLOCK_HEIGHT / 2)
         else
-            cfg = { halfSize = 3, height = 3 }
+            -- Fallback: roughly 3 studs below HRP
+            baseY = hrp.Position.Y - 3
         end
 
-        local halfSize = cfg.halfSize
-        local height   = cfg.height
+        -- Build centered horizontally where the player is
+        local basePos = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
+        local forward = hrp.CFrame.LookVector
 
-        local builtCount = 0
+        return basePos, forward
+    end
 
-        for yLevel = 0, height do
-            local y = floorY + (yLevel * BLOCK_STEP_Y)
+    ----------------------------------------------------------------------
+    -- House builder
+    ----------------------------------------------------------------------
+    local GRID_STEP = 4 -- spacing between block centers
 
-            for ix = -halfSize, halfSize do
-                for iz = -halfSize, halfSize do
-                    local isEdge = (math.abs(ix) == halfSize) or (math.abs(iz) == halfSize)
-                    local isFloor = (yLevel == 0)
-                    local isRoof  = (yLevel == height)
+    local function buildBoxHouse(widthBlocks, depthBlocks, wallHeightBlocks)
+        if not Place or not baseplate then return end
 
-                    -- Floor and roof are solid; walls only on edges in between
-                    if isFloor or isRoof or isEdge then
-                        local pos = Vector3.new(
-                            centerXZ.X + ix * GRID_STEP,
-                            y,
-                            centerXZ.Z + iz * GRID_STEP
-                        )
-                        local cf = CFrame.new(pos)
-                        placeBlock(blockName, cf)
-                        builtCount += 1
+        local blockName = C.Config.BuildBlockName or "Oak Planks"
+        local basePos, forward = getBuildBase()
+        if not basePos then return end
 
-                        if builtCount % 75 == 0 then
-                            Run.Heartbeat:Wait()
-                        end
+        -- Align so house is in front of the player a bit
+        forward          = forward.Unit
+        local right      = Vector3.new(forward.Z, 0, -forward.X).Unit
+        local houseOffset = forward * (GRID_STEP * 2) -- push house slightly ahead
+
+        local center = basePos + houseOffset
+
+        -- Make widths/depths odd so there is a center
+        if widthBlocks  % 2 == 0 then widthBlocks  = widthBlocks  + 1 end
+        if depthBlocks  % 2 == 0 then depthBlocks  = depthBlocks  + 1 end
+
+        local halfW = (widthBlocks  - 1) / 2
+        local halfD = (depthBlocks  - 1) / 2
+
+        -- Floor
+        for ix = -halfW, halfW do
+            for iz = -halfD, halfD do
+                local offset = (right * (ix * GRID_STEP)) + (forward * (iz * GRID_STEP))
+                local pos    = center + offset
+                local cf     = CFrame.new(pos)
+                safePlace(blockName, cf)
+            end
+        end
+
+        -- Walls (rectangular perimeter)
+        for iy = 1, wallHeightBlocks do
+            local yOffset = iy * HOUSE_BLOCK_HEIGHT
+            for ix = -halfW, halfW do
+                for iz = -halfD, halfD do
+                    local isEdge = (ix == -halfW or ix == halfW or iz == -halfD or iz == halfD)
+                    if isEdge then
+                        local offset = (right * (ix * GRID_STEP)) + (forward * (iz * GRID_STEP))
+                        local pos    = center + offset + Vector3.new(0, yOffset, 0)
+                        local cf     = CFrame.new(pos)
+                        safePlace(blockName, cf)
                     end
                 end
+            end
+        end
+
+        -- Roof (flat)
+        local roofY = wallHeightBlocks * HOUSE_BLOCK_HEIGHT + (HOUSE_BLOCK_HEIGHT / 2)
+        for ix = -halfW, halfW do
+            for iz = -halfD, halfD do
+                local offset = (right * (ix * GRID_STEP)) + (forward * (iz * GRID_STEP))
+                local pos    = center + offset + Vector3.new(0, roofY, 0)
+                local cf     = CFrame.new(pos)
+                safePlace(blockName, cf)
             end
         end
     end
 
     tab:Section({ Title = "House Builder", Icon = "home" })
 
+    -- Small house: tight
     tab:Button({
         Title = "Build Small House",
         Callback = function()
-            buildHouse("Small")
+            -- width, depth, height (blocks)
+            buildBoxHouse(7, 7, 4)
         end
     })
 
+    -- Medium house
     tab:Button({
         Title = "Build Medium House",
         Callback = function()
-            buildHouse("Medium")
+            buildBoxHouse(11, 9, 5)
         end
     })
 
+    -- Large house
     tab:Button({
         Title = "Build Large House",
         Callback = function()
-            buildHouse("Large")
+            buildBoxHouse(15, 11, 6)
         end
     })
 end
