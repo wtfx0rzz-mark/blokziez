@@ -1,22 +1,14 @@
 -- tab_troll.lua
--- Troll tab: Delete Blocks + Column Spam
 
 return function(C, R, UI)
-    -- Fallback to globals if not passed
     C  = C  or _G.C
     R  = R  or _G.R
     UI = UI or _G.UI
 
-    if not UI or not UI.Tabs or not UI.Tabs.Troll then
-        warn("tab_troll.lua: Troll tab missing")
-        return
-    end
+    assert(UI and UI.Tabs and UI.Tabs.Troll, "tab_troll.lua: Troll tab missing")
 
     local tab = UI.Tabs.Troll
 
-    ------------------------------------------------
-    -- Services / player / shared state
-    ------------------------------------------------
     local Services = C.Services or {}
     local Players  = Services.Players or game:GetService("Players")
     local RS       = Services.RS      or game:GetService("ReplicatedStorage")
@@ -39,18 +31,27 @@ return function(C, R, UI)
         return char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
     end
 
-    ------------------------------------------------
-    -- Header text
-    ------------------------------------------------
+    local function extractNumber(v, min, max, default)
+        local nv = v
+        if type(v) == "table" then
+            nv = v.Value or v.Current or v.CurrentValue or v.Default or v.min or v.max
+        end
+        nv = tonumber(nv) or default
+        if min and max and nv then
+            nv = math.clamp(nv, min, max)
+        end
+        return nv
+    end
+
     tab:Paragraph({
         Title = "Troll / Utility",
         Desc  = "Block utilities for Blokziez.",
         Color = "Blue",
     })
 
-    ------------------------------------------------
-    -- DELETE BLOCKS (auto-delete nearby blocks)
-    ------------------------------------------------
+    ----------------------------------------------------------------
+    -- Delete Blocks
+    ----------------------------------------------------------------
     local DELETE_RADIUS_DEFAULT = 30
     local DELETE_MAX_PER_STEP   = 200
 
@@ -64,8 +65,8 @@ return function(C, R, UI)
             return
         end
 
-        local origin = hrp.Position
-        local radius = C.Config.DeleteRadius or DELETE_RADIUS_DEFAULT
+        local origin  = hrp.Position
+        local radius  = C.Config.DeleteRadius or DELETE_RADIUS_DEFAULT
         local deleted = 0
 
         local roots = {}
@@ -106,7 +107,7 @@ return function(C, R, UI)
         task.spawn(function()
             while deleteLoopRunning and C.State.DeleteBlocksEnabled do
                 deleteStep()
-                Run.Heartbeat:Wait() -- no artificial delay between sweeps
+                Run.Heartbeat:Wait()
             end
             deleteLoopRunning = false
         end)
@@ -135,18 +136,17 @@ return function(C, R, UI)
         end,
     })
 
-    ------------------------------------------------
-    -- COLUMN SPAM (random columns around player)
-    ------------------------------------------------
-    -- Defaults
+    ----------------------------------------------------------------
+    -- Column Spam
+    ----------------------------------------------------------------
     C.Config.ColumnMaxHeight = C.Config.ColumnMaxHeight or 20
     C.Config.ColumnRadius    = C.Config.ColumnRadius    or 50
     C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 40
 
-    local rng                  = Random.new()
-    local COLUMN_BASE_Y        = 2
-    local COLUMN_BLOCK_HEIGHT  = 4
-    local COLUMN_MIN_BLOCKS    = 5
+    local rng                 = Random.new()
+    local COLUMN_BASE_Y       = 2
+    local COLUMN_BLOCK_HEIGHT = 4
+    local COLUMN_MIN_BLOCKS   = 5
 
     local BLOCK_TYPES = { "Oak Planks", "Stone Bricks" }
 
@@ -162,7 +162,6 @@ return function(C, R, UI)
         return Vector3.new(x, COLUMN_BASE_Y, z)
     end
 
-    -- Small spacer
     tab:Paragraph({
         Title = "",
         Desc  = "",
@@ -173,36 +172,6 @@ return function(C, R, UI)
         Title = "Column Spam",
         Desc  = "Spawn random columns of blocks around you.",
         Color = "White",
-    })
-
-    -- Slider: Column Height
-    tab:Slider({
-        Title = "Column Height",
-        Step  = 1,
-        Value = {
-            Min     = 5,
-            Max     = 60,
-            Default = C.Config.ColumnMaxHeight,
-        },
-        Callback = function(value)
-            value = math.clamp(math.floor(value), 5, 60)
-            C.Config.ColumnMaxHeight = value
-        end,
-    })
-
-    -- Slider: Blocks around player (radius)
-    tab:Slider({
-        Title = "Blocks Around Player",
-        Step  = 1,
-        Value = {
-            Min     = 10,
-            Max     = 150,
-            Default = C.Config.ColumnRadius,
-        },
-        Callback = function(value)
-            value = math.clamp(math.floor(value), 10, 150)
-            C.Config.ColumnRadius = value
-        end,
     })
 
     local columnWorkersSpawned = false
@@ -262,6 +231,32 @@ return function(C, R, UI)
                     task.spawn(columnWorker)
                 end
             end
+        end,
+    })
+
+    tab:Slider({
+        Title = "Column Height",
+        Value = {
+            Min     = 5,
+            Max     = 60,
+            Default = C.Config.ColumnMaxHeight or 20,
+        },
+        Callback = function(v)
+            local nv = extractNumber(v, 5, 60, C.Config.ColumnMaxHeight or 20)
+            C.Config.ColumnMaxHeight = nv
+        end,
+    })
+
+    tab:Slider({
+        Title = "Blocks Around Player",
+        Value = {
+            Min     = 10,
+            Max     = 150,
+            Default = C.Config.ColumnRadius or 50,
+        },
+        Callback = function(v)
+            local nv = extractNumber(v, 10, 150, C.Config.ColumnRadius or 50)
+            C.Config.ColumnRadius = nv
         end,
     })
 end
