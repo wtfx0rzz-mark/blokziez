@@ -266,13 +266,16 @@ return function(C, R, UI)
     })
 
     --------------------------------------------------------------------
-    -- Black Wool Infection (horizontal spreading, no stacking)
+    -- Black Wool Infection (edge-biased, 3D, sprawly, no stacking on wool)
     --------------------------------------------------------------------
 
-    local SPREAD_BLOCK              = "Black Wool"
-    local SPREAD_BLOCK_SIZE         = 4
-    local SPREAD_MAX_STEPS_PER_TICK = 7
-    local SPREAD_MAX_TOTAL_BLOCKS   = 3000
+    local SPREAD_BLOCK               = "Black Wool"
+    local SPREAD_BLOCK_SIZE          = 4
+    local SPREAD_MAX_STEPS_PER_TICK  = 10
+    local SPREAD_MAX_TOTAL_BLOCKS    = 4000
+    local SPREAD_JUMP_MIN            = 2    -- cells
+    local SPREAD_JUMP_MAX            = 7    -- cells (increase for even wilder sprawl)
+    local SPREAD_MAX_FRONTIER_SIZE   = 600  -- cap frontier to "a few edge blocks"
 
     C.State.SpreadEnabled = C.State.SpreadEnabled or false
 
@@ -302,6 +305,61 @@ return function(C, R, UI)
         return Vector3.new(gx * s, gy * s, gz * s)
     end
 
+    -- 6-connected neighbors (used for edge detection)
+    local neighborDirs = {
+        {  1,  0,  0 },
+        { -1,  0,  0 },
+        {  0,  1,  0 },
+        {  0, -1,  0 },
+        {  0,  0,  1 },
+        {  0,  0, -1 },
+    }
+
+    -- For direction choice: bias slightly toward horizontal motion
+    local horizDirs = {
+        {  1,  0,  0 },
+        { -1,  0,  0 },
+        {  0,  0,  1 },
+        {  0,  0, -1 },
+    }
+    local vertDirs = {
+        { 0,  1,  0 },
+        { 0, -1,  0 },
+    }
+
+    local function randomDir3D()
+        if math.random() < 0.7 then
+            return horizDirs[math.random(1, #horizDirs)]
+        else
+            return vertDirs[math.random(1, #vertDirs)]
+        end
+    end
+
+    local function neighborVisitedCount(gx, gy, gz)
+        local c = 0
+        for _, d in ipairs(neighborDirs) do
+            local k = gridKey(gx + d[1], gy + d[2], gz + d[3])
+            if spreadVisited[k] then
+                c += 1
+            end
+        end
+        return c
+    end
+
+    local function addFrontierCell(gx, gy, gz)
+        -- Only treat "edge-ish" cells as growth sources
+        local n = neighborVisitedCount(gx, gy, gz)
+        if n <= 4 then
+            table.insert(spreadFrontier, { gx = gx, gy = gy, gz = gz })
+            -- Cap frontier size so we only grow from some edge cells
+            if #spreadFrontier > SPREAD_MAX_FRONTIER_SIZE then
+                -- randomly drop some frontier cells
+                local dropIndex = math.random(1, #spreadFrontier)
+                table.remove(spreadFrontier, dropIndex)
+            end
+        end
+    end
+
     local function seedSpread()
         spreadFrontier = {}
         spreadVisited  = {}
@@ -323,21 +381,13 @@ return function(C, R, UI)
         local key        = gridKey(gx, gy, gz)
 
         spreadVisited[key] = true
-        table.insert(spreadFrontier, { gx = gx, gy = gy, gz = gz })
+        addFrontierCell(gx, gy, gz)
 
         pcall(function()
             Place:InvokeServer(SPREAD_BLOCK, CFrame.new(centerPos), baseplate)
         end)
         spreadCount = 1
     end
-
-    -- Only horizontal neighbor directions: side-to-side spreading
-    local neighborDirs = {
-        {  1,  0,  0 },
-        { -1,  0,  0 },
-        {  0,  0,  1 },
-        {  0,  0, -1 },
-    }
 
     local function spreadStep()
         if not (Place and baseplate) then return end
@@ -347,7 +397,7 @@ return function(C, R, UI)
         end
 
         if #spreadFrontier == 0 then
-            -- nothing else to grow from
+        -- no more edge cells to grow from
             C.State.SpreadEnabled = false
             return
         end
@@ -357,34 +407,44 @@ return function(C, R, UI)
         while steps < SPREAD_MAX_STEPS_PER_TICK and #spreadFrontier > 0 do
             steps += 1
 
-            -- pick random frontier cell
+            -- pick random frontier cell (edge-ish)
             local idx  = math.random(1, #spreadFrontier)
             local cell = spreadFrontier[idx]
 
-            -- random horizontal direction
-            local dir  = neighborDirs[math.random(1, #neighborDirs)]
-            local ngx  = cell.gx + dir[1]
-            local ngy  = cell.gy + dir[2]
-            local ngz  = cell.gz + dir[3]
+            -- if this cell has become interior, retire it
+            local ncount = neighborVisitedCount(cell.gx, cell.gy, cell.gz)
+            if ncount >= 5 then
+                table.remove(spreadFrontier, idx)
+                if #spreadFrontier == 0 then break end
+                -- pick another cell next loop iteration
+            else
+                -- choose direction and jump distance
+                local dir   = randomDir3D()
+                local jump  = math.random(SPREAD_JUMP_MIN, SPREAD_JUMP_MAX)
+                local ngx   = cell.gx + dir[1] * jump
+                local ngy   = cell.gy + dir[2] * jump
+                local ngz   = cell.gz + dir[3] * jump
 
-            local key  = gridKey(ngx, ngy, ngz)
-            if not spreadVisited[key] then
-                spreadVisited[key] = true
+                local key   = gridKey(ngx, ngy, ngz)
+                if not spreadVisited[key] then
+                    spreadVisited[key] = true
 
-                local pos = gridToWorld(ngx, ngy, ngz)
+                    local pos = gridToWorld(ngx, ngy, ngz)
 
-                -- Place a new black wool beside existing ones (never stacked vertically,
-                -- because we don't use ±Y neighbors and each grid cell is only used once)
-                pcall(function()
-                    Place:InvokeServer(SPREAD_BLOCK, CFrame.new(pos), baseplate)
-                end)
+                    -- Place Black Wool only if we haven't already used this grid cell.
+                    -- This avoids stacking Black Wool on Black Wool, but allows
+                    -- growing over other materials.
+                    pcall(function()
+                        Place:InvokeServer(SPREAD_BLOCK, CFrame.new(pos), baseplate)
+                    end)
 
-                spreadCount += 1
-                table.insert(spreadFrontier, { gx = ngx, gy = ngy, gz = ngz })
+                    spreadCount += 1
+                    addFrontierCell(ngx, ngy, ngz)
 
-                if spreadCount >= SPREAD_MAX_TOTAL_BLOCKS then
-                    C.State.SpreadEnabled = false
-                    break
+                    if spreadCount >= SPREAD_MAX_TOTAL_BLOCKS then
+                        C.State.SpreadEnabled = false
+                        break
+                    end
                 end
             end
         end
