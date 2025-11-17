@@ -1,5 +1,5 @@
 -- tab_build.lua
--- Blokziez • Build tab: block picker + small house builder (no raycast)
+-- Blokziez • Build tab: block picker + small/medium/large house builder (no raycast, 10x scaled)
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -22,6 +22,9 @@ return function(C, R, UI)
     local Place        = EventsFolder and EventsFolder:FindFirstChild("Place")
     local baseplate    = WS:FindFirstChild("Baseplate")
 
+    ----------------------------------------------------------------------
+    -- Block list from your backpack scan
+    ----------------------------------------------------------------------
     local BLOCK_ITEMS = {
         "Birch Log",
         "Sandstone",
@@ -105,6 +108,9 @@ return function(C, R, UI)
         "Blue Wool",
     }
 
+    ----------------------------------------------------------------------
+    -- Helpers
+    ----------------------------------------------------------------------
     local defaultBlock = C.Config.BuildBlockName
     if type(defaultBlock) ~= "string" or defaultBlock == "" then
         defaultBlock = "Oak Planks"
@@ -123,18 +129,30 @@ return function(C, R, UI)
         end)
     end
 
+    ----------------------------------------------------------------------
+    -- Materials
+    ----------------------------------------------------------------------
     local FLOOR_BLOCK = "Oak Planks"
     local WALL_BLOCK  = "Bricks"
     local ROOF_BLOCK  = "Stone"
 
-    local STEP_SIZE = 4
+    ----------------------------------------------------------------------
+    -- Scale (10x larger)
+    ----------------------------------------------------------------------
+    local STEP_SIZE = 4 * 10  -- was 4, now 40 for 10x linear size
 
+    ----------------------------------------------------------------------
+    -- House size presets
+    ----------------------------------------------------------------------
     local HOUSE_SIZES = {
-        Small  = { half = 2, wallLevels = 3 }, -- 5x5 footprint
+        Small  = { half = 2, wallLevels = 3 }, -- 5x5 footprint (scaled by STEP_SIZE)
         Medium = { half = 3, wallLevels = 4 }, -- 7x7 footprint
         Large  = { half = 4, wallLevels = 5 }, -- 9x9 footprint
     }
 
+    ----------------------------------------------------------------------
+    -- House builder (uses HRP position as base, no raycast)
+    ----------------------------------------------------------------------
     local function buildHouseAroundPlayer(sizeKey)
         if not Place or not baseplate then return end
 
@@ -175,29 +193,34 @@ return function(C, R, UI)
             safePlace(ROOF_BLOCK, cf)
         end
 
+        -- Floor
         for x = -half, half do
             for z = -half, half do
                 placeFloor(x * STEP_SIZE, 0, z * STEP_SIZE)
             end
         end
 
+        -- Walls
         for level = 1, wallLevels do
             local y = level * STEP_SIZE
 
+            -- Front/back
             for x = -half, half do
                 placeWall(x * STEP_SIZE, y, -half * STEP_SIZE)
                 placeWall(x * STEP_SIZE, y,  half * STEP_SIZE)
             end
 
+            -- Left/right (no double corners)
             for z = -half + 1, half - 1 do
                 placeWall(-half * STEP_SIZE, y, z * STEP_SIZE)
                 placeWall( half * STEP_SIZE, y, z * STEP_SIZE)
             end
         end
 
-        local roofBaseY   = (wallLevels + 1) * STEP_SIZE
-        local maxRadius   = half + 1
-        local roofLevels  = maxRadius + 1
+        -- Triangular/pyramidal roof with 1-block overhang
+        local roofBaseY  = (wallLevels + 1) * STEP_SIZE
+        local maxRadius  = half + 1         -- one extra for eaves
+        local roofLevels = maxRadius + 1    -- step up to a point
 
         for level = 0, roofLevels do
             local radius = maxRadius - level
@@ -213,6 +236,9 @@ return function(C, R, UI)
         end
     end
 
+    ----------------------------------------------------------------------
+    -- UI
+    ----------------------------------------------------------------------
     tab:Section({ Title = "Builder" })
 
     tab:Dropdown({
@@ -228,21 +254,21 @@ return function(C, R, UI)
     })
 
     tab:Button({
-        Title = "Build Small House Around Player",
+        Title = "Build SMALL House (10x)",
         Callback = function()
             buildHouseAroundPlayer("Small")
         end
     })
 
     tab:Button({
-        Title = "Build Medium House Around Player",
+        Title = "Build MEDIUM House (10x)",
         Callback = function()
             buildHouseAroundPlayer("Medium")
         end
     })
 
     tab:Button({
-        Title = "Build Large House Around Player",
+        Title = "Build LARGE House (10x)",
         Callback = function()
             buildHouseAroundPlayer("Large")
         end
