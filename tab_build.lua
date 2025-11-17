@@ -1,5 +1,6 @@
 -- tab_build.lua
--- Blokziez • Build tab: block picker + small/medium/large house builder (scaled, no raycast)
+-- Blokziez • Build tab: block picker + small/medium/large house builder
+-- Grid-aligned (no raycast)
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -130,6 +131,25 @@ return function(C, R, UI)
     end
 
     ----------------------------------------------------------------------
+    -- Grid snapping
+    ----------------------------------------------------------------------
+    local GRID_SIZE = 4      -- size of one block cell in studs
+    local STEP_SIZE = GRID_SIZE
+
+    local function snapAxis(x)
+        -- snap to nearest multiple of GRID_SIZE
+        return math.floor(x / GRID_SIZE + 0.5) * GRID_SIZE
+    end
+
+    local function snapToGrid(v)
+        return Vector3.new(
+            snapAxis(v.X),
+            snapAxis(v.Y),
+            snapAxis(v.Z)
+        )
+    end
+
+    ----------------------------------------------------------------------
     -- Materials
     ----------------------------------------------------------------------
     local FLOOR_BLOCK = "Oak Planks"
@@ -137,12 +157,10 @@ return function(C, R, UI)
     local ROOF_BLOCK  = "Stone"
 
     ----------------------------------------------------------------------
-    -- Geometry / scale
+    -- Logical house sizes (in blocks), then scaled
     ----------------------------------------------------------------------
-    local STEP_SIZE = 4         -- keep equal to block size so there are no gaps
-    local SCALE     = 3         -- scale factor for all house sizes (linear)
+    local SCALE = 3   -- linear scale factor for all sizes
 
-    -- Base logical sizes (in blocks, not studs)
     local HOUSE_SIZES = {
         Small  = { half = 2, wallLevels = 3 }, -- base: 5x5 footprint
         Medium = { half = 3, wallLevels = 4 }, -- base: 7x7 footprint
@@ -150,22 +168,21 @@ return function(C, R, UI)
     }
 
     ----------------------------------------------------------------------
-    -- House builder (uses HRP position as base, no raycast)
+    -- House builder (uses snapped HRP position as base, no raycast)
     ----------------------------------------------------------------------
     local function buildHouseAroundPlayer(sizeKey)
         if not Place or not baseplate then return end
 
         local baseCfg = HOUSE_SIZES[sizeKey or "Small"] or HOUSE_SIZES.Small
-
-        -- scale up logical dimensions, but keep studs-per-block constant
         local half       = baseCfg.half * SCALE
         local wallLevels = baseCfg.wallLevels * SCALE
 
         local root = hrp()
         if not root then return end
 
-        local origin  = root.Position
-        local basePos = Vector3.new(origin.X, origin.Y, origin.Z)
+        -- Snap player position to grid so all blocks align to the world grid
+        local origin  = snapToGrid(root.Position)
+        local basePos = origin
 
         local function placeFloor(dx, dy, dz)
             local cf = CFrame.new(
@@ -194,14 +211,18 @@ return function(C, R, UI)
             safePlace(ROOF_BLOCK, cf)
         end
 
+        ------------------------------------------------------------------
         -- Floor (filled)
+        ------------------------------------------------------------------
         for x = -half, half do
             for z = -half, half do
                 placeFloor(x * STEP_SIZE, 0, z * STEP_SIZE)
             end
         end
 
-        -- Walls (hollow interior, solid shell)
+        ------------------------------------------------------------------
+        -- Walls (hollow interior)
+        ------------------------------------------------------------------
         for level = 1, wallLevels do
             local y = level * STEP_SIZE
 
@@ -218,10 +239,12 @@ return function(C, R, UI)
             end
         end
 
-        -- Triangular/pyramidal roof with 1-block overhang
+        ------------------------------------------------------------------
+        -- Triangular/pyramidal roof with 1-block eaves, snapped to grid
+        ------------------------------------------------------------------
         local roofBaseY  = (wallLevels + 1) * STEP_SIZE
         local maxRadius  = half + 1         -- one extra for eaves
-        local roofLevels = maxRadius + 1    -- stepped up to a point
+        local roofLevels = maxRadius + 1    -- step up to a point
 
         for level = 0, roofLevels do
             local radius = maxRadius - level
@@ -255,21 +278,21 @@ return function(C, R, UI)
     })
 
     tab:Button({
-        Title = "Build SMALL House (scaled)",
+        Title = "Build SMALL House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Small")
         end
     })
 
     tab:Button({
-        Title = "Build MEDIUM House (scaled)",
+        Title = "Build MEDIUM House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Medium")
         end
     })
 
     tab:Button({
-        Title = "Build LARGE House (scaled)",
+        Title = "Build LARGE House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Large")
         end
