@@ -2,7 +2,7 @@
 
 return function(C, R, UI)
     C  = C  or _G.C
-    R  = C  or _G.R
+    R  = R  or _G.R
     UI = UI or _G.UI
 
     assert(UI and UI.Tabs and UI.Tabs.Troll, "tab_troll.lua: Troll tab missing")
@@ -375,6 +375,224 @@ return function(C, R, UI)
         Callback = function(v)
             local nv = extractNumber(v, 4, 150, C.Config.ColumnRadius or 50)
             C.Config.ColumnRadius = nv
+        end,
+    })
+
+    --------------------------------------------------------------------
+    -- Player / NPC Aura lock + autoswing (game.Players targets)
+    --------------------------------------------------------------------
+
+    local AURA_RADIUS_DEFAULT        = 60
+    local AURA_RADIUS_MIN            = 5
+    local AURA_RADIUS_MAX            = 300
+    local AURA_SWING_INTERVAL_DEFAULT = 0.01  -- your tweaked speed
+    local AURA_MAX_TELEPORT_STEP     = 80
+    local AURA_TARGET_REFRESH        = 0.15
+
+    C.Config.AuraRadius        = C.Config.AuraRadius        or AURA_RADIUS_DEFAULT
+    C.Config.AuraSwingInterval = C.Config.AuraSwingInterval or AURA_SWING_INTERVAL_DEFAULT
+    C.State.AuraEnabled        = C.State.AuraEnabled        or false
+
+    local AURA_WHITELIST = {
+        DaAxenat0r     = true,
+        DaAvanat0r_v2  = true,
+    }
+
+    local function getHumanoid(model)
+        if not model then return nil end
+        return model:FindFirstChildOfClass("Humanoid")
+    end
+
+    local function getEquippedTool()
+        local char = lp.Character or lp.CharacterAdded:Wait()
+        for _, obj in ipairs(char:GetChildren()) do
+            if obj:IsA("Tool") then
+                return obj
+            end
+        end
+
+        local backpack = lp:FindFirstChild("Backpack")
+        if backpack then
+            for _, obj in ipairs(backpack:GetChildren()) do
+                if obj:IsA("Tool") then
+                    return obj
+                end
+            end
+        end
+        return nil
+    end
+
+    local function ensureEquipped(tool)
+        if not tool then return end
+        local char = lp.Character or lp.CharacterAdded:Wait()
+        if tool.Parent == char then return end
+
+        local hum = getHumanoid(char)
+        if hum then
+            hum:EquipTool(tool)
+        else
+            tool.Parent = char
+        end
+    end
+
+    local function currentAuraRadius()
+        return C.Config.AuraRadius or AURA_RADIUS_DEFAULT
+    end
+
+    local function isValidAuraTarget(model, myHRP)
+        if not (model and myHRP) then return false end
+        if not model:IsA("Model") then return false end
+
+        if model == (lp.Character or lp.CharacterAdded:Wait()) then return false end
+        if AURA_WHITELIST[model.Name] then return false end
+        if model.Name == lp.Name then return false end
+
+        local hum = getHumanoid(model)
+        if hum and hum.Health <= 0 then
+            return false
+        end
+
+        local part = getHRP(model)
+        if not part then return false end
+
+        local dist = (part.Position - myHRP.Position).Magnitude
+        if dist > currentAuraRadius() then return false end
+
+        return true
+    end
+
+    local function findNearestAuraTarget(myHRP)
+        if not myHRP then return nil end
+
+        local nearest = nil
+        local bestDist = currentAuraRadius()
+        local myChar = lp.Character or lp.CharacterAdded:Wait()
+
+        -- 1) Other real players' characters
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp and not AURA_WHITELIST[p.Name] then
+                local char = p.Character
+                if char and char:IsA("Model") and isValidAuraTarget(char, myHRP) then
+                    local part = getHRP(char)
+                    if part then
+                        local d = (part.Position - myHRP.Position).Magnitude
+                        if d <= bestDist then
+                            bestDist = d
+                            nearest = char
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 2) Any Model directly under game.Players that isn't our own character
+        for _, obj in ipairs(Players:GetChildren()) do
+            if obj:IsA("Model") and obj ~= myChar and not AURA_WHITELIST[obj.Name] then
+                if isValidAuraTarget(obj, myHRP) then
+                    local part = getHRP(obj)
+                    if part then
+                        local d = (part.Position - myHRP.Position).Magnitude
+                        if d <= bestDist then
+                            bestDist = d
+                            nearest = obj
+                        end
+                    end
+                end
+            end
+        end
+
+        return nearest
+    end
+
+    local auraConn       = nil
+    local auraTarget     = nil
+    local auraTargetAcc  = 0
+    local auraAttackAcc  = 0
+
+    local function auraStep(dt)
+        if not C.State.AuraEnabled then return end
+
+        local hrp = getHRP()
+        if not hrp or not hrp.Parent then
+            auraTarget = nil
+            return
+        end
+
+        -- Refresh / validate target periodically
+        auraTargetAcc = auraTargetAcc + dt
+        if auraTargetAcc >= AURA_TARGET_REFRESH then
+            auraTargetAcc = 0
+            if not isValidAuraTarget(auraTarget, hrp) then
+                auraTarget = findNearestAuraTarget(hrp)
+            end
+        end
+
+        -- Lock-on movement
+        if auraTarget then
+            local tPart = getHRP(auraTarget)
+            if tPart then
+                local desiredPos = tPart.Position - tPart.CFrame.LookVector * 3
+                local dist = (desiredPos - hrp.Position).Magnitude
+
+                if dist > AURA_MAX_TELEPORT_STEP then
+                    auraTarget = nil
+                else
+                    hrp.CFrame = CFrame.new(desiredPos, tPart.Position)
+                end
+            else
+                auraTarget = nil
+            end
+        end
+
+        -- Auto-swing (shared toggle; always on when aura enabled)
+        auraAttackAcc = auraAttackAcc + dt
+        local interval = C.Config.AuraSwingInterval or AURA_SWING_INTERVAL_DEFAULT
+        if auraAttackAcc >= interval then
+            auraAttackAcc = 0
+            local tool = getEquippedTool()
+            if tool then
+                ensureEquipped(tool)
+                tool:Activate()
+            end
+        end
+    end
+
+    tab:Toggle({
+        Title = "Aura: Lock + AutoSwing (Players)",
+        Value = C.State.AuraEnabled or false,
+        Callback = function(enabled)
+            C.State.AuraEnabled = enabled and true or false
+
+            if enabled then
+                auraTarget    = nil
+                auraTargetAcc = 0
+                auraAttackAcc = 0
+
+                if not auraConn then
+                    auraConn = Run.Heartbeat:Connect(function(dt)
+                        auraStep(dt)
+                    end)
+                end
+            else
+                if auraConn then
+                    auraConn:Disconnect()
+                    auraConn = nil
+                end
+                auraTarget = nil
+            end
+        end,
+    })
+
+    tab:Slider({
+        Title = "Aura Lock Distance",
+        Value = {
+            Min     = AURA_RADIUS_MIN,
+            Max     = AURA_RADIUS_MAX,
+            Default = C.Config.AuraRadius or AURA_RADIUS_DEFAULT,
+        },
+        Callback = function(v)
+            local nv = extractNumber(v, AURA_RADIUS_MIN, AURA_RADIUS_MAX, AURA_RADIUS_DEFAULT)
+            C.Config.AuraRadius = nv
         end,
     })
 end
