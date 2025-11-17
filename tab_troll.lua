@@ -10,10 +10,10 @@ return function(C, R, UI)
     local tab = UI.Tabs.Troll
 
     local Services = C.Services or {}
-    local Players  = Services.Players or game:GetService("Players")
-    local RS       = Services.RS      or game:GetService("ReplicatedStorage")
-    local WS       = Services.WS      or game:GetService("Workspace")
-    local Run      = Services.Run     or game:GetService("RunService")
+    local Players  = Services.Players  or game:GetService("Players")
+    local RS       = Services.RS       or game:GetService("ReplicatedStorage")
+    local WS       = Services.WS       or game:GetService("Workspace")
+    local Run      = Services.Run      or game:GetService("RunService")
 
     local lp = C.LocalPlayer or Players.LocalPlayer
 
@@ -26,9 +26,41 @@ return function(C, R, UI)
 
     local baseplate    = WS:FindFirstChild("Baseplate")
 
-    local function getHRP()
-        local char = lp.Character or lp.CharacterAdded:Wait()
-        return char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
+    --------------------------------------------------------------------
+    -- HRP helper (player or model)
+    --------------------------------------------------------------------
+    local function getHRP(model)
+        -- Player HRP (no argument)
+        if not model then
+            local char = lp.Character or lp.CharacterAdded:Wait()
+            local hrp  = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                return hrp
+            end
+            return char:WaitForChild("HumanoidRootPart")
+        end
+
+        -- Model HRP (target)
+        if not model:IsA("Model") then
+            return nil
+        end
+
+        local hrp = model:FindFirstChild("HumanoidRootPart")
+        if hrp and hrp:IsA("BasePart") then
+            return hrp
+        end
+
+        if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
+            return model.PrimaryPart
+        end
+
+        for _, c in ipairs(model:GetChildren()) do
+            if c:IsA("BasePart") then
+                return c
+            end
+        end
+
+        return nil
     end
 
     local function extractNumber(v, min, max, default)
@@ -532,14 +564,12 @@ return function(C, R, UI)
         if auraTarget then
             local tPart = getHRP(auraTarget)
             if tPart then
-                local desiredPos = tPart.Position - tPart.CFrame.LookVector * 3
+                local desiredPos   = tPart.Position - tPart.CFrame.LookVector * 3
                 local distToTarget = (tPart.Position - hrp.Position).Magnitude
 
-                -- NEW: don't chase beyond aura radius (prevents infinite sliding / flying)
                 if distToTarget > currentAuraRadius() + 5 then
                     auraTarget = nil
                 else
-                    -- Extra safety: if target is suddenly extremely far, drop it
                     if distToTarget > AURA_MAX_TELEPORT_STEP then
                         auraTarget = nil
                     else
