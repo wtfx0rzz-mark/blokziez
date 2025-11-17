@@ -1,5 +1,5 @@
 -- tab_build.lua
--- Blokziez • Build tab: material dropdown + house builder (walls only, grid-aligned)
+-- Blokziez • Build tab: material dropdown + house builder (walls only)
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -277,4 +277,4 @@ return function(C, R, UI)
             buildBoxHouse(15, 11, 6)
         end
     })
-
+end
