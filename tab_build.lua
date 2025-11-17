@@ -1,6 +1,6 @@
 -- tab_build.lua
 -- Blokziez • Build tab: block picker + small/medium/large house builder
--- Grid-aligned (no raycast)
+-- Grid-aligned on X/Z, original working height on Y (no raycast)
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -23,9 +23,6 @@ return function(C, R, UI)
     local Place        = EventsFolder and EventsFolder:FindFirstChild("Place")
     local baseplate    = WS:FindFirstChild("Baseplate")
 
-    ----------------------------------------------------------------------
-    -- Block list from your backpack scan
-    ----------------------------------------------------------------------
     local BLOCK_ITEMS = {
         "Birch Log",
         "Sandstone",
@@ -109,9 +106,6 @@ return function(C, R, UI)
         "Blue Wool",
     }
 
-    ----------------------------------------------------------------------
-    -- Helpers
-    ----------------------------------------------------------------------
     local defaultBlock = C.Config.BuildBlockName
     if type(defaultBlock) ~= "string" or defaultBlock == "" then
         defaultBlock = "Oak Planks"
@@ -130,46 +124,31 @@ return function(C, R, UI)
         end)
     end
 
-    ----------------------------------------------------------------------
-    -- Grid snapping
-    ----------------------------------------------------------------------
-    local GRID_SIZE = 4      -- size of one block cell in studs
+    -- Grid settings
+    local GRID_SIZE = 4
     local STEP_SIZE = GRID_SIZE
 
-    local function snapAxis(x)
-        -- snap to nearest multiple of GRID_SIZE
-        return math.floor(x / GRID_SIZE + 0.5) * GRID_SIZE
+    -- Snap X/Z to grid, keep Y untouched (original working height)
+    local function snapToGridXZ(v)
+        local snappedX = math.floor(v.X / GRID_SIZE + 0.5) * GRID_SIZE
+        local snappedZ = math.floor(v.Z / GRID_SIZE + 0.5) * GRID_SIZE
+        return Vector3.new(snappedX, v.Y, snappedZ)
     end
 
-    local function snapToGrid(v)
-        return Vector3.new(
-            snapAxis(v.X),
-            snapAxis(v.Y),
-            snapAxis(v.Z)
-        )
-    end
-
-    ----------------------------------------------------------------------
     -- Materials
-    ----------------------------------------------------------------------
     local FLOOR_BLOCK = "Oak Planks"
     local WALL_BLOCK  = "Bricks"
     local ROOF_BLOCK  = "Stone"
 
-    ----------------------------------------------------------------------
-    -- Logical house sizes (in blocks), then scaled
-    ----------------------------------------------------------------------
-    local SCALE = 3   -- linear scale factor for all sizes
+    -- Logical sizes (in blocks), then scaled
+    local SCALE = 3
 
     local HOUSE_SIZES = {
-        Small  = { half = 2, wallLevels = 3 }, -- base: 5x5 footprint
-        Medium = { half = 3, wallLevels = 4 }, -- base: 7x7 footprint
-        Large  = { half = 4, wallLevels = 5 }, -- base: 9x9 footprint
+        Small  = { half = 2, wallLevels = 3 },
+        Medium = { half = 3, wallLevels = 4 },
+        Large  = { half = 4, wallLevels = 5 },
     }
 
-    ----------------------------------------------------------------------
-    -- House builder (uses snapped HRP position as base, no raycast)
-    ----------------------------------------------------------------------
     local function buildHouseAroundPlayer(sizeKey)
         if not Place or not baseplate then return end
 
@@ -180,8 +159,8 @@ return function(C, R, UI)
         local root = hrp()
         if not root then return end
 
-        -- Snap player position to grid so all blocks align to the world grid
-        local origin  = snapToGrid(root.Position)
+        -- Use original vertical placement, but snap horizontal to grid
+        local origin  = snapToGridXZ(root.Position)
         local basePos = origin
 
         local function placeFloor(dx, dy, dz)
@@ -211,40 +190,34 @@ return function(C, R, UI)
             safePlace(ROOF_BLOCK, cf)
         end
 
-        ------------------------------------------------------------------
-        -- Floor (filled)
-        ------------------------------------------------------------------
+        -- Floor
         for x = -half, half do
             for z = -half, half do
                 placeFloor(x * STEP_SIZE, 0, z * STEP_SIZE)
             end
         end
 
-        ------------------------------------------------------------------
-        -- Walls (hollow interior)
-        ------------------------------------------------------------------
+        -- Walls
         for level = 1, wallLevels do
             local y = level * STEP_SIZE
 
-            -- Front/back walls
+            -- Front/back
             for x = -half, half do
                 placeWall(x * STEP_SIZE, y, -half * STEP_SIZE)
                 placeWall(x * STEP_SIZE, y,  half * STEP_SIZE)
             end
 
-            -- Left/right walls (no double corners)
+            -- Left/right (no double corners)
             for z = -half + 1, half - 1 do
                 placeWall(-half * STEP_SIZE, y, z * STEP_SIZE)
                 placeWall( half * STEP_SIZE, y, z * STEP_SIZE)
             end
         end
 
-        ------------------------------------------------------------------
-        -- Triangular/pyramidal roof with 1-block eaves, snapped to grid
-        ------------------------------------------------------------------
+        -- Triangular/pyramidal roof with 1-block overhang
         local roofBaseY  = (wallLevels + 1) * STEP_SIZE
-        local maxRadius  = half + 1         -- one extra for eaves
-        local roofLevels = maxRadius + 1    -- step up to a point
+        local maxRadius  = half + 1
+        local roofLevels = maxRadius + 1
 
         for level = 0, roofLevels do
             local radius = maxRadius - level
@@ -260,9 +233,6 @@ return function(C, R, UI)
         end
     end
 
-    ----------------------------------------------------------------------
-    -- UI
-    ----------------------------------------------------------------------
     tab:Section({ Title = "Builder" })
 
     tab:Dropdown({
@@ -278,21 +248,21 @@ return function(C, R, UI)
     })
 
     tab:Button({
-        Title = "Build SMALL House (grid aligned)",
+        Title = "Build SMALL House (grid XZ)",
         Callback = function()
             buildHouseAroundPlayer("Small")
         end
     })
 
     tab:Button({
-        Title = "Build MEDIUM House (grid aligned)",
+        Title = "Build MEDIUM House (grid XZ)",
         Callback = function()
             buildHouseAroundPlayer("Medium")
         end
     })
 
     tab:Button({
-        Title = "Build LARGE House (grid aligned)",
+        Title = "Build LARGE House (grid XZ)",
         Callback = function()
             buildHouseAroundPlayer("Large")
         end
