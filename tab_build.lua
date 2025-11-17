@@ -139,7 +139,7 @@ return function(C, R, UI)
     ----------------------------------------------------------------------
     -- Scale (10x larger)
     ----------------------------------------------------------------------
-    local STEP_SIZE = 4 * 5  -- was 4, now 40 for 10x linear size
+    local STEP_SIZE = 4 * 3  -- was 4, now 40 for 10x linear size
 
     ----------------------------------------------------------------------
     -- House size presets
@@ -254,21 +254,21 @@ return function(C, R, UI)
     })
 
     tab:Button({
-        Title = "Build SMALL House (10x)",
+        Title = "Build SMALL House",
         Callback = function()
             buildHouseAroundPlayer("Small")
         end
     })
 
     tab:Button({
-        Title = "Build MEDIUM House (10x)",
+        Title = "Build MEDIUM House",
         Callback = function()
             buildHouseAroundPlayer("Medium")
         end
     })
 
     tab:Button({
-        Title = "Build LARGE House (10x)",
+        Title = "Build LARGE House",
         Callback = function()
             buildHouseAroundPlayer("Large")
         end
