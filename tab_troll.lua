@@ -46,12 +46,8 @@ return function(C, R, UI)
     tab:Paragraph({
         Title = "Troll / Utility",
         Desc  = "Block utilities for Blokziez.",
-        Color = "Blue",
     })
 
-    ----------------------------------------------------------------
-    -- Delete Blocks
-    ----------------------------------------------------------------
     local DELETE_RADIUS_DEFAULT = 30
     local DELETE_MAX_PER_STEP   = 200
 
@@ -120,7 +116,6 @@ return function(C, R, UI)
     tab:Paragraph({
         Title = "Delete Blocks",
         Desc  = "Automatically destroy nearby built blocks.",
-        Color = "White",
     })
 
     tab:Toggle({
@@ -136,9 +131,6 @@ return function(C, R, UI)
         end,
     })
 
-    ----------------------------------------------------------------
-    -- Column Spam
-    ----------------------------------------------------------------
     C.Config.ColumnMaxHeight = C.Config.ColumnMaxHeight or 20
     C.Config.ColumnRadius    = C.Config.ColumnRadius    or 50
     C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 40
@@ -165,13 +157,11 @@ return function(C, R, UI)
     tab:Paragraph({
         Title = "",
         Desc  = "",
-        Color = "White",
     })
 
     tab:Paragraph({
         Title = "Column Spam",
         Desc  = "Spawn random columns of blocks around you.",
-        Color = "White",
     })
 
     local columnWorkersSpawned = false
