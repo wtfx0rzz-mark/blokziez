@@ -52,6 +52,17 @@ return function(C, R, UI)
 
     C.Config.DeleteRadius = C.Config.DeleteRadius or DELETE_RADIUS_DEFAULT
 
+    local function getDeleteRoots()
+        local roots = {}
+        local built = WS:FindFirstChild("Built")
+        if built then table.insert(roots, built) end
+
+        local personal = WS:FindFirstChild(lp.Name)
+        if personal then table.insert(roots, personal) end
+
+        return roots
+    end
+
     local function deleteStep()
         if not Destroy then return end
 
@@ -64,12 +75,8 @@ return function(C, R, UI)
         local radius  = C.Config.DeleteRadius or DELETE_RADIUS_DEFAULT
         local deleted = 0
 
-        local roots = {}
-        local built = WS:FindFirstChild("Built")
-        if built then table.insert(roots, built) end
-
-        local personal = WS:FindFirstChild(lp.Name)
-        if personal then table.insert(roots, personal) end
+        local roots = getDeleteRoots()
+        if #roots == 0 then return end
 
         for _, root in ipairs(roots) do
             if not C.State.DeleteBlocksEnabled then return end
@@ -126,68 +133,30 @@ return function(C, R, UI)
     })
 
     --------------------------------------------------------------------
-    -- Tunnel: raycast-based delete corridor ahead of player
+    -- Tunnel: raycast-based delete directly ahead (3-block vertical column)
     --------------------------------------------------------------------
 
-    C.State.TunnelEnabled = C.State.TunnelEnabled or false
+    local TUNNEL_DIST_DEFAULT   = 3
+    local TUNNEL_DIST_MIN       = 1
+    local TUNNEL_DIST_MAX       = 15
+    local TUNNEL_MAX_PER_STEP   = 6  -- up to 2 blocks per ray * 3 vertical rays
 
-    -- Total forward distance to clear (studs)
-    local TUNNEL_DISTANCE     = 10
-    -- Max blocks to delete per step (face + above + below = 3)
-    local TUNNEL_MAX_PER_STEP = 3
-    -- Vertical range (studs) to look above/below the hit
-    local VERTICAL_RANGE      = 5
-    -- Step size along the look direction (studs)
-    local SEGMENT_STEP        = 3
-
-    local function getDeleteRoots()
-        local roots = {}
-        local built = WS:FindFirstChild("Built")
-        if built then table.insert(roots, built) end
-
-        local personal = WS:FindFirstChild(lp.Name)
-        if personal then table.insert(roots, personal) end
-
-        return roots
-    end
+    C.Config.TunnelDistance = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT
+    C.State.TunnelEnabled   = C.State.TunnelEnabled   or false
 
     local function isTunnelCandidate(part)
         if not (part and part:IsA("BasePart")) then return false end
         if part == baseplate then return false end
-        if part:IsDescendantOf(lp.Character) then return false end
+        if lp.Character and part:IsDescendantOf(lp.Character) then return false end
         return true
     end
 
     local tunnelParams = RaycastParams.new()
-    tunnelParams.FilterType   = Enum.RaycastFilterType.Include
-    tunnelParams.IgnoreWater  = true
-
-    -- Collect the main hit + blocks directly above and below it
-    local function collectVerticalColumnAt(hitPos, forward, distance, seen, hits)
-        if #hits >= TUNNEL_MAX_PER_STEP then return end
-
-        local function tryAddAtOffset(yOffset)
-            if #hits >= TUNNEL_MAX_PER_STEP then return end
-            local samplePos = hitPos + Vector3.new(0, yOffset, 0)
-            -- Short ray backwards into the block we want to delete
-            local result = WS:Raycast(samplePos, -forward * 4, tunnelParams)
-            if result and result.Instance then
-                local inst = result.Instance
-                if isTunnelCandidate(inst) and not seen[inst] then
-                    seen[inst] = true
-                    table.insert(hits, inst)
-                end
-            end
-        end
-
-        -- center (face-level), above, below
-        tryAddAtOffset(0)
-        tryAddAtOffset(4)
-        tryAddAtOffset(-4)
-    end
+    tunnelParams.FilterType  = Enum.RaycastFilterType.Include
+    tunnelParams.IgnoreWater = true
 
     local function tunnelStep()
-        if not Destroy then return end
+        if not (Destroy and C.State.TunnelEnabled) then return end
 
         local hrp = getHRP()
         if not hrp or not hrp.Parent then return end
@@ -197,43 +166,56 @@ return function(C, R, UI)
         tunnelParams.FilterDescendantsInstances = roots
 
         local cf      = hrp.CFrame
-        local pos     = hrp.Position
         local forward = cf.LookVector
-        local right   = cf.RightVector
         local up      = cf.UpVector
 
-        local seen = {}
-        local hits = {}
+        local dist = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT
+        dist = math.clamp(dist, TUNNEL_DIST_MIN, TUNNEL_DIST_MAX)
 
-        -- March forward in small segments up to TUNNEL_DISTANCE
-        for seg = 0, TUNNEL_DISTANCE, SEGMENT_STEP do
-            if #hits >= TUNNEL_MAX_PER_STEP then break end
+        -- We want the block in front of face, plus directly above and below.
+        -- Start the rays a bit in front of the HRP so we don't hit our own character.
+        local baseOrigin = hrp.Position + forward * 2
 
-            local baseOrigin = pos + forward * seg
+        local origins = {
+            baseOrigin,               -- center
+            baseOrigin + up * 4,      -- above (1 block up)
+            baseOrigin - up * 4,      -- below (1 block down / ground)
+        }
 
-            local origins = {
-                baseOrigin + up * 2 + right * 1,
-                baseOrigin + up * 2 - right * 1,
-                baseOrigin + right * 1,
-                baseOrigin - right * 1,
-            }
+        local seen  = {}
+        local hits  = {}
+        local ahead = forward * dist
 
-            for _, origin in ipairs(origins) do
-                if #hits >= TUNNEL_MAX_PER_STEP then break end
+        local function markSeen(part)
+            if not part then return false end
+            if seen[part] then return false end
+            seen[part] = true
+            return true
+        end
 
-                local result = WS:Raycast(origin, forward * SEGMENT_STEP, tunnelParams)
-                if result and result.Instance then
-                    local inst = result.Instance
-                    if isTunnelCandidate(inst) and not seen[inst] then
-                        seen[inst] = true
-                        -- Face block + above/below at this hit
-                        collectVerticalColumnAt(result.Position, forward, TUNNEL_DISTANCE, seen, hits)
+        for _, origin in ipairs(origins) do
+            -- First hit
+            local result = WS:Raycast(origin, ahead, tunnelParams)
+            if result and result.Instance then
+                local inst = result.Instance
+                if isTunnelCandidate(inst) and markSeen(inst) then
+                    table.insert(hits, inst)
+                    if #hits >= TUNNEL_MAX_PER_STEP then break end
+                end
+            end
+            -- Optional: second ray a bit further forward to catch slightly deeper block
+            if #hits < TUNNEL_MAX_PER_STEP then
+                local result2 = WS:Raycast(origin + forward * (dist * 0.5), ahead * 0.5, tunnelParams)
+                if result2 and result2.Instance then
+                    local inst2 = result2.Instance
+                    if isTunnelCandidate(inst2) and markSeen(inst2) then
+                        table.insert(hits, inst2)
+                        if #hits >= TUNNEL_MAX_PER_STEP then break end
                     end
                 end
             end
         end
 
-        -- Delete collected blocks
         for _, inst in ipairs(hits) do
             if inst and inst.Parent then
                 pcall(function()
@@ -254,7 +236,6 @@ return function(C, R, UI)
         end)
     end
 
-    private_stopTunnel = nil
     local function stopTunnel()
         C.State.TunnelEnabled = false
         if tunnelConn then
@@ -262,17 +243,29 @@ return function(C, R, UI)
             tunnelConn = nil
         end
     end
-    private_stopTunnel = stopTunnel
 
     tab:Toggle({
         Title = "Tunnel (Delete Ahead)",
-        Value = false,
+        Value = C.State.TunnelEnabled or false,
         Callback = function(enabled)
             if enabled then
                 startTunnel()
             else
                 stopTunnel()
             end
+        end,
+    })
+
+    tab:Slider({
+        Title = "Tunnel Distance",
+        Value = {
+            Min     = TUNNEL_DIST_MIN,
+            Max     = TUNNEL_DIST_MAX,
+            Default = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT,
+        },
+        Callback = function(v)
+            local nv = extractNumber(v, TUNNEL_DIST_MIN, TUNNEL_DIST_MAX, TUNNEL_DIST_DEFAULT)
+            C.Config.TunnelDistance = nv
         end,
     })
 
@@ -349,7 +342,7 @@ return function(C, R, UI)
 
     tab:Toggle({
         Title = "Column Spam",
-        Value = false,
+        Value = C.State.ColumnSpamEnabled or false,
         Callback = function(enabled)
             C.State.ColumnSpamEnabled = enabled and true or false
 
