@@ -2,7 +2,7 @@
 
 return function(C, R, UI)
     C  = C  or _G.C
-    R  = R  or _G.R
+    R  = C  or _G.R
     UI = UI or _G.UI
 
     assert(UI and UI.Tabs and UI.Tabs.Troll, "tab_troll.lua: Troll tab missing")
@@ -138,8 +138,8 @@ return function(C, R, UI)
 
     local TUNNEL_DIST_DEFAULT   = 3
     local TUNNEL_DIST_MIN       = 1
-    local TUNNEL_DIST_MAX       = 15
-    local TUNNEL_MAX_PER_STEP   = 6  -- up to 2 blocks per ray * 3 vertical rays
+    local TUNNEL_DIST_MAX       = 50  -- increased from 15 to 50
+    local TUNNEL_MAX_PER_STEP   = 6   -- up to 2 blocks per ray * 3 vertical rays
 
     C.Config.TunnelDistance = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT
     C.State.TunnelEnabled   = C.State.TunnelEnabled   or false
@@ -368,12 +368,12 @@ return function(C, R, UI)
     tab:Slider({
         Title = "Blocks Around Player",
         Value = {
-            Min     = 10,
+            Min     = 4,
             Max     = 150,
             Default = C.Config.ColumnRadius or 50,
         },
         Callback = function(v)
-            local nv = extractNumber(v, 10, 150, C.Config.ColumnRadius or 50)
+            local nv = extractNumber(v, 4, 150, C.Config.ColumnRadius or 50)
             C.Config.ColumnRadius = nv
         end,
     })
