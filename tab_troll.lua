@@ -115,7 +115,7 @@ return function(C, R, UI)
         end)
     end
 
-    local function stopDeleteLoop()
+    private function stopDeleteLoop()
         deleteLoopRunning = false
     end
 
@@ -270,10 +270,12 @@ return function(C, R, UI)
     --------------------------------------------------------------------
 
     local TRAP_BLOCK          = "Black Wool"
-    local TRAP_BLOCK_SIZE     = 4    -- world grid (same as other blocks)
-    local TRAP_OUTER_HALF     = 2    -- outer grid range: -2..1
-    local TRAP_LEVELS_WALL    = 2    -- wall levels (0,1)
+    local TRAP_BLOCK_SIZE     = 4    -- world grid
+    local TRAP_OUTER_HALF     = 2    -- grid range: -2..1 (4×4)
+    local TRAP_LEVELS_WALL    = 2    -- wall levels: 0,1
     local TRAP_ROOF_LEVEL     = 2    -- roof at 3rd block up
+    local TRAP_SPAM_PER_TICK  = 3    -- how many times to place each block per frame
+
     local trapGeneration      = 0
 
     C.State.TrapEnabled = C.State.TrapEnabled or false
@@ -298,12 +300,10 @@ return function(C, R, UI)
 
         local result = WS:Raycast(origin, Vector3.new(0, -100, 0), trapRayParams)
         if result and result.Position then
-            -- Snap hit point to grid; treat that as ground center
             local snapped = snapToGrid4(result.Position)
             return snapped
         end
 
-        -- Fallback: use HRP X/Z snapped, fixed Y if no ground found
         local fallback = snapToGrid4(Vector3.new(origin.X, 2, origin.Z))
         return fallback
     end
@@ -330,7 +330,7 @@ return function(C, R, UI)
             end
         end
 
-        -- Roof: full 4x4 plate at 3rd block up
+        -- Roof: full 4×4 plate at 3rd block up
         local roofY = center.Y + TRAP_ROOF_LEVEL * TRAP_BLOCK_SIZE
         for gx = -TRAP_OUTER_HALF, TRAP_OUTER_HALF - 1 do
             for gz = -TRAP_OUTER_HALF, TRAP_OUTER_HALF - 1 do
@@ -359,9 +359,12 @@ return function(C, R, UI)
             task.spawn(function()
                 local cf = CFrame.new(pos)
                 while C.State.TrapEnabled and trapGeneration == myGen do
-                    pcall(function()
-                        Place:InvokeServer(TRAP_BLOCK, cf, baseplate)
-                    end)
+                    -- hammer this position multiple times per frame
+                    for _ = 1, TRAP_SPAM_PER_TICK do
+                        pcall(function()
+                            Place:InvokeServer(TRAP_BLOCK, cf, baseplate)
+                        end)
+                    end
                     Run.Heartbeat:Wait()
                 end
             end)
@@ -398,7 +401,6 @@ return function(C, R, UI)
     local COLUMN_BLOCK_HEIGHT = 4
     local COLUMN_MIN_BLOCKS   = 5
 
-    -- Always Black Wool now
     local BLOCK_TYPES = { "Black Wool" }
 
     local function randomBlockType()
@@ -446,7 +448,6 @@ return function(C, R, UI)
                     local cf = CFrame.new(state.base.X, y, state.base.Z)
 
                     pcall(function()
-                        -- Now always uses Black Wool
                         Place:InvokeServer(randomBlockType(), cf, baseplate)
                     end)
 
