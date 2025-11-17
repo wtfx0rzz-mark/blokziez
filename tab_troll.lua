@@ -382,20 +382,20 @@ return function(C, R, UI)
     -- Player / NPC Aura lock + autoswing (game.Players targets)
     --------------------------------------------------------------------
 
-    local AURA_RADIUS_DEFAULT        = 60
-    local AURA_RADIUS_MIN            = 5
-    local AURA_RADIUS_MAX            = 300
+    local AURA_RADIUS_DEFAULT         = 60
+    local AURA_RADIUS_MIN             = 5
+    local AURA_RADIUS_MAX             = 300
     local AURA_SWING_INTERVAL_DEFAULT = 0.01  -- your tweaked speed
-    local AURA_MAX_TELEPORT_STEP     = 80
-    local AURA_TARGET_REFRESH        = 0.15
+    local AURA_MAX_TELEPORT_STEP      = 80
+    local AURA_TARGET_REFRESH         = 0.15
 
     C.Config.AuraRadius        = C.Config.AuraRadius        or AURA_RADIUS_DEFAULT
     C.Config.AuraSwingInterval = C.Config.AuraSwingInterval or AURA_SWING_INTERVAL_DEFAULT
     C.State.AuraEnabled        = C.State.AuraEnabled        or false
 
     local AURA_WHITELIST = {
-        DaAxenat0r     = true,
-        DaAvanat0r_v2  = true,
+        DaAxenat0r    = true,
+        DaAvanat0r_v2 = true,
     }
 
     local function getHumanoid(model)
@@ -443,7 +443,8 @@ return function(C, R, UI)
         if not (model and myHRP) then return false end
         if not model:IsA("Model") then return false end
 
-        if model == (lp.Character or lp.CharacterAdded:Wait()) then return false end
+        local myChar = lp.Character or lp.CharacterAdded:Wait()
+        if model == myChar then return false end
         if AURA_WHITELIST[model.Name] then return false end
         if model.Name == lp.Name then return false end
 
@@ -532,19 +533,25 @@ return function(C, R, UI)
             local tPart = getHRP(auraTarget)
             if tPart then
                 local desiredPos = tPart.Position - tPart.CFrame.LookVector * 3
-                local dist = (desiredPos - hrp.Position).Magnitude
+                local distToTarget = (tPart.Position - hrp.Position).Magnitude
 
-                if dist > AURA_MAX_TELEPORT_STEP then
+                -- NEW: don't chase beyond aura radius (prevents infinite sliding / flying)
+                if distToTarget > currentAuraRadius() + 5 then
                     auraTarget = nil
                 else
-                    hrp.CFrame = CFrame.new(desiredPos, tPart.Position)
+                    -- Extra safety: if target is suddenly extremely far, drop it
+                    if distToTarget > AURA_MAX_TELEPORT_STEP then
+                        auraTarget = nil
+                    else
+                        hrp.CFrame = CFrame.new(desiredPos, tPart.Position)
+                    end
                 end
             else
                 auraTarget = nil
             end
         end
 
-        -- Auto-swing (shared toggle; always on when aura enabled)
+        -- Auto-swing (always on when aura is enabled)
         auraAttackAcc = auraAttackAcc + dt
         local interval = C.Config.AuraSwingInterval or AURA_SWING_INTERVAL_DEFAULT
         if auraAttackAcc >= interval then
