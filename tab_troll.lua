@@ -132,7 +132,7 @@ return function(C, R, UI)
     C.State.TunnelEnabled = C.State.TunnelEnabled or false
 
     -- Distance to check ahead (studs)
-    local TUNNEL_DISTANCE     = 3
+    local TUNNEL_DISTANCE     = 10
     -- Max blocks to delete per step (face + above + below = 3)
     local TUNNEL_MAX_PER_STEP = 3
     -- Vertical range (studs) to look above/below the hit
