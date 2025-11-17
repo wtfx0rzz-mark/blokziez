@@ -115,7 +115,7 @@ return function(C, R, UI)
         end)
     end
 
-    private function stopDeleteLoop()
+    local function stopDeleteLoop()
         deleteLoopRunning = false
     end
 
