@@ -18,9 +18,9 @@ return function(C, R, UI)
     local tab  = Tabs.Main
     if not tab then return end
 
-    C.State  = C.State  or {}
-    C.Config = C.Config or {}
-    C.State.Toggles = C.State.Toggles or {}
+    C.State            = C.State  or {}
+    C.Config           = C.Config or {}
+    C.State.Toggles    = C.State.Toggles or {}
     C.State.AuraRadius = C.State.AuraRadius or 150
 
     ----------------------------------------------------------------------
@@ -46,7 +46,7 @@ return function(C, R, UI)
     end
 
     ----------------------------------------------------------------------
-    -- Shockwave Nudge (from nudge.lua)
+    -- Shockwave Nudge core (from nudge.lua)
     ----------------------------------------------------------------------
     local function mainPart(obj)
         if not obj or not obj.Parent then return nil end
@@ -73,10 +73,11 @@ return function(C, R, UI)
         return t
     end
 
-    -- Never changes CanCollide; only snapshots state
+    -- Snapshot only; does not actually change CanCollide state.
     local function setCollide(model, on, snap)
         local parts = getParts(model)
         if on and snap then
+            -- we are choosing not to restore in this version, by design
             return
         end
         local s = {}
@@ -130,15 +131,6 @@ return function(C, R, UI)
             return true
         end
         return false
-    end
-
-    local function finallyStopDrag(model)
-        task.delay(0.05, function()
-            pcall(safeStopDrag, model)
-        end)
-        task.delay(0.20, function()
-            pcall(safeStopDrag, model)
-        end)
     end
 
     local function pulseDragOnce(model)
@@ -339,6 +331,7 @@ return function(C, R, UI)
         for _, part in ipairs(parts) do
             if part:IsA("BasePart") and not part.Anchored then
                 if myChar and part:IsDescendantOf(myChar) then
+                    -- skip self
                 else
                     local mdl = part:FindFirstAncestorOfClass("Model") or part
                     if not seen[mdl] then
@@ -357,6 +350,9 @@ return function(C, R, UI)
         end
     end
 
+    ----------------------------------------------------------------------
+    -- EdgeButtons GUI (shared stack for edge buttons)
+    ----------------------------------------------------------------------
     local playerGui = lp:FindFirstChildOfClass("PlayerGui") or lp:WaitForChild("PlayerGui")
     local edgeGui   = playerGui:FindFirstChild("EdgeButtons")
     if not edgeGui then
@@ -420,7 +416,7 @@ return function(C, R, UI)
     end)
 
     ----------------------------------------------------------------------
-    -- Player highlight helpers (from visuals.lua)
+    -- Player highlight helpers (from visuals.lua, player tracker only)
     ----------------------------------------------------------------------
     local function auraRadius()
         return math.clamp(tonumber(C.State.AuraRadius) or 150, 0, 1_000_000)
@@ -428,8 +424,8 @@ return function(C, R, UI)
 
     local function bestPart(model)
         if not model or not model:IsA("Model") then return nil end
-        local hrpPart = model:FindFirstChild("HumanoidRootPart")
-        if hrpPart and hrpPart:IsA("BasePart") then return hrpPart end
+        local hpart = model:FindFirstChild("HumanoidRootPart")
+        if hpart and hpart:IsA("BasePart") then return hpart end
         if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
             return model.PrimaryPart
         end
@@ -473,13 +469,19 @@ return function(C, R, UI)
     local function startPlayerTracker()
         if runningPlayers then return end
         runningPlayers = true
-        for _, p in ipairs(Players:GetPlayers()) do trackPlayer(p) end
+
+        for _, p in ipairs(Players:GetPlayers()) do
+            trackPlayer(p)
+        end
+
         Players.PlayerAdded:Connect(trackPlayer)
+
         task.spawn(function()
             while runningPlayers do
                 local lch = lp.Character
                 local lhrp = lch and lch:FindFirstChild("HumanoidRootPart")
                 local R = auraRadius()
+
                 for _, plr in ipairs(Players:GetPlayers()) do
                     if plr ~= lp then
                         local ch = plr.Character
@@ -487,21 +489,26 @@ return function(C, R, UI)
                             local h = ensureHighlight(ch, PLAYER_HL_NAME)
                             h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                             h.Enabled = true
+
                             if lhrp then
                                 local phrp = ch:FindFirstChild("HumanoidRootPart")
-                                local p0 = phrp and phrp.Position or (bestPart(ch) and bestPart(ch).Position)
+                                local bp   = bestPart(ch)
+                                local p0   = (phrp and phrp.Position) or (bp and bp.Position)
                                 if p0 then
                                     local d = (p0 - lhrp.Position).Magnitude
                                     local t = math.clamp(d / math.max(R, 1), 0, 1)
-                                    h.FillTransparency    = 1 - (0.85 * t)  -- near: ~0.15, far: ~0.85
-                                    h.OutlineTransparency = 0.2 * (1 - t)   -- near: 0.2, far: 0.0
+                                    h.FillTransparency    = 1 - (0.85 * t)   -- near: ~0.15, far: ~0.85
+                                    h.OutlineTransparency = 0.2 * (1 - t)    -- near: 0.2, far: 0.0
                                 end
                             end
                         end
                     end
                 end
+
                 task.wait(0.25)
             end
+
+            -- cleanup when stopped
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= lp and plr.Character then
                     clearHighlight(plr.Character, PLAYER_HL_NAME)
@@ -751,7 +758,7 @@ return function(C, R, UI)
     end
 
     ----------------------------------------------------------------------
-    -- Godmode (DamagePlayer remote, like Auto tab)
+    -- Godmode
     ----------------------------------------------------------------------
     local godOn, godHB, godAcc = false, nil, 0
     local GOD_INTERVAL = 0.5
@@ -814,7 +821,6 @@ return function(C, R, UI)
     ----------------------------------------------------------------------
     -- UI
     ----------------------------------------------------------------------
-
     tab:Section({ Title = "Movement", Icon = "activity" })
 
     tab:Slider({
@@ -928,8 +934,8 @@ return function(C, R, UI)
     tab:Section({ Title = "Shockwave Nudge" })
 
     tab:Toggle({
-        Title = "Edge Button: Shockwave",
-        Value = initialEdge,
+        Title  = "Edge Button: Shockwave",
+        Value  = initialEdge,
         Callback = function(v)
             local on = (v == true)
             C.State.Toggles.EdgeShockwave = on
@@ -1012,7 +1018,7 @@ return function(C, R, UI)
     end)
 
     ----------------------------------------------------------------------
-    -- Player highlight toggle (bottom of Main tab)
+    -- Visuals section: Highlight Players
     ----------------------------------------------------------------------
     tab:Section({ Title = "Visuals", Icon = "eye" })
 
