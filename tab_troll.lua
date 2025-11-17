@@ -266,13 +266,13 @@ return function(C, R, UI)
     })
 
     --------------------------------------------------------------------
-    -- Black Wool Infection (random spreading)
+    -- Black Wool Infection (horizontal spreading, no stacking)
     --------------------------------------------------------------------
 
-    local SPREAD_BLOCK             = "Black Wool"
-    local SPREAD_BLOCK_SIZE        = 4
-    local SPREAD_MAX_STEPS_PER_TICK = 5
-    local SPREAD_MAX_TOTAL_BLOCKS  = 800
+    local SPREAD_BLOCK              = "Black Wool"
+    local SPREAD_BLOCK_SIZE         = 4
+    local SPREAD_MAX_STEPS_PER_TICK = 7
+    local SPREAD_MAX_TOTAL_BLOCKS   = 3000
 
     C.State.SpreadEnabled = C.State.SpreadEnabled or false
 
@@ -331,11 +331,10 @@ return function(C, R, UI)
         spreadCount = 1
     end
 
+    -- Only horizontal neighbor directions: side-to-side spreading
     local neighborDirs = {
         {  1,  0,  0 },
         { -1,  0,  0 },
-        {  0,  1,  0 },
-        {  0, -1,  0 },
         {  0,  0,  1 },
         {  0,  0, -1 },
     }
@@ -343,6 +342,12 @@ return function(C, R, UI)
     local function spreadStep()
         if not (Place and baseplate) then return end
         if spreadCount >= SPREAD_MAX_TOTAL_BLOCKS then
+            C.State.SpreadEnabled = false
+            return
+        end
+
+        if #spreadFrontier == 0 then
+            -- nothing else to grow from
             C.State.SpreadEnabled = false
             return
         end
@@ -356,6 +361,7 @@ return function(C, R, UI)
             local idx  = math.random(1, #spreadFrontier)
             local cell = spreadFrontier[idx]
 
+            -- random horizontal direction
             local dir  = neighborDirs[math.random(1, #neighborDirs)]
             local ngx  = cell.gx + dir[1]
             local ngy  = cell.gy + dir[2]
@@ -367,6 +373,8 @@ return function(C, R, UI)
 
                 local pos = gridToWorld(ngx, ngy, ngz)
 
+                -- Place a new black wool beside existing ones (never stacked vertically,
+                -- because we don't use ±Y neighbors and each grid cell is only used once)
                 pcall(function()
                     Place:InvokeServer(SPREAD_BLOCK, CFrame.new(pos), baseplate)
                 end)
