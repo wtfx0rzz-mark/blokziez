@@ -1,5 +1,5 @@
 -- tab_build.lua
--- Blokziez • Build tab: material dropdown + house builder
+-- Blokziez • Build tab: material dropdown + house builder (walls only)
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -138,7 +138,6 @@ return function(C, R, UI)
         "Blue Wool",
     }
 
-    -- Default selected block
     C.Config.BuildBlockName = C.Config.BuildBlockName or "Oak Planks"
 
     tab:Section({ Title = "Block Type", Icon = "box" })
@@ -160,35 +159,36 @@ return function(C, R, UI)
     })
 
     ----------------------------------------------------------------------
-    -- Ground detection (fix floating houses)
+    -- Ground detection (for wall base height)
     ----------------------------------------------------------------------
-    local HOUSE_BLOCK_HEIGHT = 4 -- assume 4x4x4 style building blocks
+    local HOUSE_BLOCK_HEIGHT = 4   -- assume 4x4x4 style blocks
+    local GRID_STEP          = 4   -- spacing between block centers
 
     local function getBuildBase()
         local hrp = getHRP()
         if not hrp then return nil, nil end
 
+        -- Raycast straight down from just above the player
         local origin = hrp.Position + Vector3.new(0, 5, 0)
         local dir    = Vector3.new(0, -1, 0) * 100
 
         local params = RaycastParams.new()
-        params.FilterType               = Enum.RaycastFilterType.Exclude
-        params.IgnoreWater              = true
+        params.FilterType                 = Enum.RaycastFilterType.Exclude
+        params.IgnoreWater                = true
         params.FilterDescendantsInstances = { lp.Character }
 
         local result = WS:Raycast(origin, dir, params)
         local baseY
 
         if result and result.Position then
-            -- result.Position.Y is on the surface of the floor block
-            -- We want our block center to sit on top: + half block height
+            -- Hit point is the floor surface; we want wall blocks to sit on that.
+            -- Center of first wall block = surfaceY + half block height.
             baseY = result.Position.Y + (HOUSE_BLOCK_HEIGHT / 2)
         else
-            -- Fallback: roughly 3 studs below HRP
+            -- Fallback: just under the player
             baseY = hrp.Position.Y - 3
         end
 
-        -- Build centered horizontally where the player is
         local basePos = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
         local forward = hrp.CFrame.LookVector
 
@@ -196,10 +196,8 @@ return function(C, R, UI)
     end
 
     ----------------------------------------------------------------------
-    -- House builder
+    -- House builder (walls + roof only)
     ----------------------------------------------------------------------
-    local GRID_STEP = 4 -- spacing between block centers
-
     local function buildBoxHouse(widthBlocks, depthBlocks, wallHeightBlocks)
         if not Place or not baseplate then return end
 
@@ -207,32 +205,21 @@ return function(C, R, UI)
         local basePos, forward = getBuildBase()
         if not basePos then return end
 
-        -- Align so house is in front of the player a bit
-        forward          = forward.Unit
-        local right      = Vector3.new(forward.Z, 0, -forward.X).Unit
-        local houseOffset = forward * (GRID_STEP * 2) -- push house slightly ahead
+        forward = forward.Unit
+        local right = Vector3.new(forward.Z, 0, -forward.X).Unit
+        local houseOffset = forward * (GRID_STEP * 2) -- push a bit in front of player
 
         local center = basePos + houseOffset
 
-        -- Make widths/depths odd so there is a center
-        if widthBlocks  % 2 == 0 then widthBlocks  = widthBlocks  + 1 end
-        if depthBlocks  % 2 == 0 then depthBlocks  = depthBlocks  + 1 end
+        -- Force odd sizes so we have a true center
+        if widthBlocks % 2 == 0 then widthBlocks = widthBlocks + 1 end
+        if depthBlocks % 2 == 0 then depthBlocks = depthBlocks + 1 end
 
-        local halfW = (widthBlocks  - 1) / 2
-        local halfD = (depthBlocks  - 1) / 2
+        local halfW = (widthBlocks - 1) / 2
+        local halfD = (depthBlocks - 1) / 2
 
-        -- Floor
-        for ix = -halfW, halfW do
-            for iz = -halfD, halfD do
-                local offset = (right * (ix * GRID_STEP)) + (forward * (iz * GRID_STEP))
-                local pos    = center + offset
-                local cf     = CFrame.new(pos)
-                safePlace(blockName, cf)
-            end
-        end
-
-        -- Walls (rectangular perimeter)
-        for iy = 1, wallHeightBlocks do
+        -- Walls: bottom row starts exactly on the ground level we computed
+        for iy = 0, wallHeightBlocks - 1 do
             local yOffset = iy * HOUSE_BLOCK_HEIGHT
             for ix = -halfW, halfW do
                 for iz = -halfD, halfD do
@@ -247,12 +234,12 @@ return function(C, R, UI)
             end
         end
 
-        -- Roof (flat)
-        local roofY = wallHeightBlocks * HOUSE_BLOCK_HEIGHT + (HOUSE_BLOCK_HEIGHT / 2)
+        -- Roof (flat) on top of walls
+        local roofY = basePos.Y + (wallHeightBlocks * HOUSE_BLOCK_HEIGHT)
         for ix = -halfW, halfW do
             for iz = -halfD, halfD do
                 local offset = (right * (ix * GRID_STEP)) + (forward * (iz * GRID_STEP))
-                local pos    = center + offset + Vector3.new(0, roofY, 0)
+                local pos    = Vector3.new(center.X + offset.X, roofY, center.Z + offset.Z)
                 local cf     = CFrame.new(pos)
                 safePlace(blockName, cf)
             end
@@ -261,16 +248,13 @@ return function(C, R, UI)
 
     tab:Section({ Title = "House Builder", Icon = "home" })
 
-    -- Small house: tight
     tab:Button({
         Title = "Build Small House",
         Callback = function()
-            -- width, depth, height (blocks)
             buildBoxHouse(7, 7, 4)
         end
     })
 
-    -- Medium house
     tab:Button({
         Title = "Build Medium House",
         Callback = function()
@@ -278,7 +262,6 @@ return function(C, R, UI)
         end
     })
 
-    -- Large house
     tab:Button({
         Title = "Build Large House",
         Callback = function()
