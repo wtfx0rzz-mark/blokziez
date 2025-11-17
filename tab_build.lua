@@ -1,18 +1,19 @@
--- tab_build.lua
--- Blokziez • Build tab: material dropdown + house builder (walls only)
+-- tab_troll.lua
 
 return function(C, R, UI)
     C  = C  or _G.C
     R  = R  or _G.R
     UI = UI or _G.UI
 
-    assert(UI and UI.Tabs and UI.Tabs.Build, "tab_build.lua: Build tab missing")
+    assert(UI and UI.Tabs and UI.Tabs.Troll, "tab_troll.lua: Troll tab missing")
 
-    local tab      = UI.Tabs.Build
+    local tab = UI.Tabs.Troll
+
     local Services = C.Services or {}
     local Players  = Services.Players or game:GetService("Players")
     local RS       = Services.RS      or game:GetService("ReplicatedStorage")
     local WS       = Services.WS      or game:GetService("Workspace")
+    local Run      = Services.Run     or game:GetService("RunService")
 
     local lp = C.LocalPlayer or Players.LocalPlayer
 
@@ -20,12 +21,11 @@ return function(C, R, UI)
     C.Config = C.Config or {}
 
     local EventsFolder = RS:WaitForChild("Events")
+    local Destroy      = EventsFolder:FindFirstChild("DestroyBlock")
     local Place        = EventsFolder:FindFirstChild("Place")
+
     local baseplate    = WS:FindFirstChild("Baseplate")
 
-    ----------------------------------------------------------------------
-    -- Helpers
-    ----------------------------------------------------------------------
     local function getHRP()
         local char = lp.Character or lp.CharacterAdded:Wait()
         return char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
@@ -43,216 +43,342 @@ return function(C, R, UI)
         return nv
     end
 
-    local function safePlace(blockName, cf)
-        if not (Place and baseplate and blockName) then return end
-        pcall(function()
-            Place:InvokeServer(blockName, cf, baseplate)
+    --------------------------------------------------------------------
+    -- Delete blocks around player
+    --------------------------------------------------------------------
+
+    local DELETE_RADIUS_DEFAULT = 30
+    local DELETE_MAX_PER_STEP   = 200
+
+    C.Config.DeleteRadius = C.Config.DeleteRadius or DELETE_RADIUS_DEFAULT
+
+    local function getDeleteRoots()
+        local roots = {}
+        local built = WS:FindFirstChild("Built")
+        if built then table.insert(roots, built) end
+
+        local personal = WS:FindFirstChild(lp.Name)
+        if personal then table.insert(roots, personal) end
+
+        return roots
+    end
+
+    local function deleteStep()
+        if not Destroy then return end
+
+        local hrp = getHRP()
+        if not hrp or not hrp.Parent then
+            return
+        end
+
+        local origin  = hrp.Position
+        local radius  = C.Config.DeleteRadius or DELETE_RADIUS_DEFAULT
+        local deleted = 0
+
+        local roots = getDeleteRoots()
+        if #roots == 0 then return end
+
+        for _, root in ipairs(roots) do
+            if not C.State.DeleteBlocksEnabled then return end
+
+            for _, inst in ipairs(root:GetDescendants()) do
+                if not C.State.DeleteBlocksEnabled then return end
+
+                if inst:IsA("BasePart") then
+                    local dist = (inst.Position - origin).Magnitude
+                    if dist <= radius then
+                        pcall(function()
+                            Destroy:InvokeServer(inst)
+                        end)
+                        deleted += 1
+                        if deleted >= DELETE_MAX_PER_STEP then
+                            return
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local deleteLoopRunning = false
+
+    local function startDeleteLoop()
+        if deleteLoopRunning or not Destroy then return end
+        deleteLoopRunning = true
+
+        task.spawn(function()
+            while deleteLoopRunning and C.State.DeleteBlocksEnabled do
+                deleteStep()
+                Run.Heartbeat:Wait()
+            end
+            deleteLoopRunning = false
         end)
     end
 
-    ----------------------------------------------------------------------
-    -- Block dropdown
-    ----------------------------------------------------------------------
-    local BLOCK_TYPES = {
-        "Birch Log",
-        "Sandstone",
-        "Rainbow Oak Planks",
-        "Oak Log",
-        "Green Wool",
-        "Red Glass",
-        "Light Cobblestone",
-        "Mossy Stone Blocks",
-        "Yellow Glass",
-        "Diamond Block",
-        "Orange Wool",
-        "Glass",
-        "Deepslate Bricks",
-        "Gravel",
-        "Birch Planks",
-        "Rainbow Stone",
-        "Gray Wool",
-        "Yellow Wool",
-        "Red Wool",
-        "Rainbow Sand",
-        "Spruce Door",
-        "Pink Glass",
-        "Stripped Oak Log",
-        "Stripped Orange Wood Log",
-        "Spruce Fence",
-        "Oak Leaves",
-        "Bricks",
-        "Orange Wood Planks",
-        "Bookshelf",
-        "Stone",
-        "White Wool",
-        "Lime Wool",
-        "Oak Fence Gate",
-        "Rainbow Oak Log",
-        "Iron Ore",
-        "Orange Wood Log",
-        "Diamond Ore",
-        "Light Stone Bricks",
-        "Rainbow TNT",
-        "Rainbow Sponge",
-        "Blue Glass",
-        "Spruce Log",
-        "Oak Door",
-        "Cyan Wool",
-        "Rainbow Wool",
-        "Clay",
-        "Iron Block",
-        "Birch Door",
-        "Orange Glass",
-        "Gray Glass",
-        "Grass",
-        "Destroy Blocks",
-        "Spruce Planks",
-        "Sand",
-        "Magenta Wool",
-        "Stone Bricks",
-        "Coal Ore",
-        "Cyan Glass",
-        "Oak Planks",
-        "Lamp",
-        "Rainbow Diamond",
-        "Pink Wool",
-        "Black Glass",
-        "Deepslate",
-        "Magma",
-        "Dark Stone Bricks",
-        "Gold Ore",
-        "Spruce Fence Gate",
-        "Magenta Glass",
-        "Oak Fence",
-        "Cobblestone",
-        "Birch Fence",
-        "Birch Fence Gate",
-        "Sponge",
-        "Green Glass",
-        "Black Wool",
-        "Dirt",
-        "Gold Block",
-        "Mud",
-        "Stripped Birch Log",
-        "Stripped Spruce Log",
-        "Blue Wool",
-    }
+    local function stopDeleteLoop()
+        deleteLoopRunning = false
+    end
 
-    C.Config.BuildBlockName = C.Config.BuildBlockName or "Oak Planks"
-
-    tab:Section({ Title = "Block Type", Icon = "box" })
-
-    tab:Dropdown({
-        Title   = "Material",
-        Values  = BLOCK_TYPES,
-        Multi   = false,
-        Default = C.Config.BuildBlockName,
-        Callback = function(choice)
-            local value = choice
-            if type(choice) == "table" then
-                value = choice[1] or choice.Value or choice.Current
+    tab:Toggle({
+        Title = "Delete Blocks Around Player",
+        Value = false,
+        Callback = function(enabled)
+            C.State.DeleteBlocksEnabled = enabled and true or false
+            if enabled then
+                startDeleteLoop()
+            else
+                stopDeleteLoop()
             end
-            if typeof(value) == "string" then
-                C.Config.BuildBlockName = value
-            end
-        end
+        end,
     })
 
-    ----------------------------------------------------------------------
-    -- House builder (no raycast, no floor, slight hover like before)
-    ----------------------------------------------------------------------
-    local BLOCK_SIZE = 2
-    local STEP       = BLOCK_SIZE
+    --------------------------------------------------------------------
+    -- Tunnel: raycast-based delete directly ahead (3-block vertical column)
+    --------------------------------------------------------------------
 
-    -- Build a hollow rectangular house: walls + flat roof, no floor
-    local function buildBoxHouse(widthBlocks, depthBlocks, wallHeightBlocks)
-        if not Place or not baseplate then return end
+    local TUNNEL_DIST_DEFAULT   = 3
+    local TUNNEL_DIST_MIN       = 1
+    local TUNNEL_DIST_MAX       = 15
+    local TUNNEL_MAX_PER_STEP   = 6  -- up to 2 blocks per ray * 3 vertical rays
 
-        local blockName = C.Config.BuildBlockName or "Oak Planks"
-        local hrp       = getHRP()
-        if not hrp then return end
+    C.Config.TunnelDistance = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT
+    C.State.TunnelEnabled   = C.State.TunnelEnabled   or false
 
-        -- Horizontal facing directions
-        local forward = hrp.CFrame.LookVector
-        if forward.Magnitude < 1e-4 then
-            forward = Vector3.new(0, 0, -1)
+    local function isTunnelCandidate(part)
+        if not (part and part:IsA("BasePart")) then return false end
+        if part == baseplate then return false end
+        if lp.Character and part:IsDescendantOf(lp.Character) then return false end
+        return true
+    end
+
+    local tunnelParams = RaycastParams.new()
+    tunnelParams.FilterType  = Enum.RaycastFilterType.Include
+    tunnelParams.IgnoreWater = true
+
+    local function tunnelStep()
+        if not (Destroy and C.State.TunnelEnabled) then return end
+
+        local hrp = getHRP()
+        if not hrp or not hrp.Parent then return end
+
+        local roots = getDeleteRoots()
+        if #roots == 0 then return end
+        tunnelParams.FilterDescendantsInstances = roots
+
+        local cf      = hrp.CFrame
+        local forward = cf.LookVector
+        local up      = cf.UpVector
+
+        local dist = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT
+        dist = math.clamp(dist, TUNNEL_DIST_MIN, TUNNEL_DIST_MAX)
+
+        -- We want the block in front of face, plus directly above and below.
+        -- Start the rays a bit in front of the HRP so we don't hit our own character.
+        local baseOrigin = hrp.Position + forward * 2
+
+        local origins = {
+            baseOrigin,               -- center
+            baseOrigin + up * 4,      -- above (1 block up)
+            baseOrigin - up * 4,      -- below (1 block down / ground)
+        }
+
+        local seen  = {}
+        local hits  = {}
+        local ahead = forward * dist
+
+        local function markSeen(part)
+            if not part then return false end
+            if seen[part] then return false end
+            seen[part] = true
+            return true
         end
-        forward = Vector3.new(forward.X, 0, forward.Z).Unit
 
-        local right = Vector3.new(-forward.Z, 0, forward.X)
-        if right.Magnitude < 1e-4 then
-            right = Vector3.new(1, 0, 0)
-        end
-        right = right.Unit
-
-        -- This is the old behaviour that caused a slight hover; restoring it.
-        local baseY = hrp.Position.Y + (BLOCK_SIZE / 2)
-
-        -- Put the house a bit in front of the player
-        local center = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
-        center = center + forward * (STEP * 2)
-
-        -- Make odd sizes so we have a true center
-        if widthBlocks % 2 == 0 then widthBlocks  = widthBlocks  + 1 end
-        if depthBlocks % 2 == 0 then depthBlocks  = depthBlocks  + 1 end
-
-        local halfW = (widthBlocks  - 1) / 2
-        local halfD = (depthBlocks  - 1) / 2
-
-        -- Walls only
-        for iy = 0, wallHeightBlocks - 1 do
-            local yOffset = iy * BLOCK_SIZE
-
-            for ix = -halfW, halfW do
-                for iz = -halfD, halfD do
-                    local isEdge =
-                        (ix == -halfW or ix == halfW or iz == -halfD or iz == halfD)
-
-                    if isEdge then
-                        local offset = (right * (ix * STEP)) + (forward * (iz * STEP))
-                        local pos    = center + offset + Vector3.new(0, yOffset, 0)
-                        local cf     = CFrame.new(pos)
-                        safePlace(blockName, cf)
+        for _, origin in ipairs(origins) do
+            -- First hit
+            local result = WS:Raycast(origin, ahead, tunnelParams)
+            if result and result.Instance then
+                local inst = result.Instance
+                if isTunnelCandidate(inst) and markSeen(inst) then
+                    table.insert(hits, inst)
+                    if #hits >= TUNNEL_MAX_PER_STEP then break end
+                end
+            end
+            -- Optional: second ray a bit further forward to catch slightly deeper block
+            if #hits < TUNNEL_MAX_PER_STEP then
+                local result2 = WS:Raycast(origin + forward * (dist * 0.5), ahead * 0.5, tunnelParams)
+                if result2 and result2.Instance then
+                    local inst2 = result2.Instance
+                    if isTunnelCandidate(inst2) and markSeen(inst2) then
+                        table.insert(hits, inst2)
+                        if #hits >= TUNNEL_MAX_PER_STEP then break end
                     end
                 end
             end
         end
 
-        -- Flat roof one block above top wall row
-        local roofY = baseY + (wallHeightBlocks * BLOCK_SIZE)
-        for ix = -halfW, halfW do
-            for iz = -halfD, halfD do
-                local offset = (right * (ix * STEP)) + (forward * (iz * STEP))
-                local pos    = Vector3.new(center.X + offset.X, roofY, center.Z + offset.Z)
-                local cf     = CFrame.new(pos)
-                safePlace(blockName, cf)
+        for _, inst in ipairs(hits) do
+            if inst and inst.Parent then
+                pcall(function()
+                    Destroy:InvokeServer(inst)
+                end)
             end
         end
     end
 
-    ----------------------------------------------------------------------
-    -- UI: House Builder buttons
-    ----------------------------------------------------------------------
-    tab:Section({ Title = "House Builder", Icon = "home" })
+    local tunnelConn = nil
 
-    tab:Button({
-        Title = "Build Small House",
-        Callback = function()
-            buildBoxHouse(7, 7, 4)
+    local function startTunnel()
+        if tunnelConn or not Destroy then return end
+        C.State.TunnelEnabled = true
+        tunnelConn = Run.Heartbeat:Connect(function()
+            if not C.State.TunnelEnabled then return end
+            tunnelStep()
+        end)
+    end
+
+    local function stopTunnel()
+        C.State.TunnelEnabled = false
+        if tunnelConn then
+            tunnelConn:Disconnect()
+            tunnelConn = nil
         end
+    end
+
+    tab:Toggle({
+        Title = "Tunnel (Delete Ahead)",
+        Value = C.State.TunnelEnabled or false,
+        Callback = function(enabled)
+            if enabled then
+                startTunnel()
+            else
+                stopTunnel()
+            end
+        end,
     })
 
-    tab:Button({
-        Title = "Build Medium House",
-        Callback = function()
-            buildBoxHouse(11, 9, 5)
-        end
+    tab:Slider({
+        Title = "Tunnel Distance",
+        Value = {
+            Min     = TUNNEL_DIST_MIN,
+            Max     = TUNNEL_DIST_MAX,
+            Default = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT,
+        },
+        Callback = function(v)
+            local nv = extractNumber(v, TUNNEL_DIST_MIN, TUNNEL_DIST_MAX, TUNNEL_DIST_DEFAULT)
+            C.Config.TunnelDistance = nv
+        end,
     })
 
-    tab:Button({
-        Title = "Build Large House",
-        Callback = function()
-            buildBoxHouse(15, 11, 6)
+    --------------------------------------------------------------------
+    -- Column spam
+    --------------------------------------------------------------------
+
+    C.Config.ColumnMaxHeight = C.Config.ColumnMaxHeight or 20
+    C.Config.ColumnRadius    = C.Config.ColumnRadius    or 50
+    C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 40
+
+    local rng                 = Random.new()
+    local COLUMN_BASE_Y       = 2
+    local COLUMN_BLOCK_HEIGHT = 4
+    local COLUMN_MIN_BLOCKS   = 5
+
+    local BLOCK_TYPES = { "Oak Planks", "Stone Bricks" }
+
+    local function randomBlockType()
+        return BLOCK_TYPES[rng:NextInteger(1, #BLOCK_TYPES)]
+    end
+
+    local function randomColumnBase(originPos, radius)
+        local r     = rng:NextNumber(0, radius)
+        local theta = rng:NextNumber(0, math.pi * 2)
+        local x = originPos.X + math.cos(theta) * r
+        local z = originPos.Z + math.sin(theta) * r
+        return Vector3.new(x, COLUMN_BASE_Y, z)
+    end
+
+    local columnWorkersSpawned = false
+
+    local function columnWorker()
+        local state = {
+            base         = nil,
+            level        = 0,
+            targetHeight = 0,
+        }
+
+        while true do
+            if C.State.ColumnSpamEnabled and Place and baseplate then
+                local hrp
+                pcall(function()
+                    hrp = getHRP()
+                end)
+
+                if hrp and hrp.Parent then
+                    local radius    = C.Config.ColumnRadius    or 50
+                    local maxHeight = C.Config.ColumnMaxHeight or 20
+                    if maxHeight < COLUMN_MIN_BLOCKS then
+                        maxHeight = COLUMN_MIN_BLOCKS
+                    end
+
+                    if not state.base or state.level >= state.targetHeight then
+                        state.base         = randomColumnBase(hrp.Position, radius)
+                        state.level        = 0
+                        state.targetHeight = rng:NextInteger(COLUMN_MIN_BLOCKS, maxHeight)
+                    end
+
+                    local y  = COLUMN_BASE_Y + state.level * COLUMN_BLOCK_HEIGHT
+                    local cf = CFrame.new(state.base.X, y, state.base.Z)
+
+                    pcall(function()
+                        Place:InvokeServer(randomBlockType(), cf, baseplate)
+                    end)
+
+                    state.level += 1
+                end
+            end
+
+            Run.Heartbeat:Wait()
         end
+    end
+
+    tab:Toggle({
+        Title = "Column Spam",
+        Value = C.State.ColumnSpamEnabled or false,
+        Callback = function(enabled)
+            C.State.ColumnSpamEnabled = enabled and true or false
+
+            if enabled and not columnWorkersSpawned then
+                columnWorkersSpawned = true
+                local workers = C.Config.ColumnWorkers or 40
+                for _ = 1, workers do
+                    task.spawn(columnWorker)
+                end
+            end
+        end,
+    })
+
+    tab:Slider({
+        Title = "Column Height",
+        Value = {
+            Min     = 5,
+            Max     = 60,
+            Default = C.Config.ColumnMaxHeight or 20,
+        },
+        Callback = function(v)
+            local nv = extractNumber(v, 5, 60, C.Config.ColumnMaxHeight or 20)
+            C.Config.ColumnMaxHeight = nv
+        end,
+    })
+
+    tab:Slider({
+        Title = "Blocks Around Player",
+        Value = {
+            Min     = 10,
+            Max     = 150,
+            Default = C.Config.ColumnRadius or 50,
+        },
+        Callback = function(v)
+            local nv = extractNumber(v, 10, 150, C.Config.ColumnRadius or 50)
+            C.Config.ColumnRadius = nv
+        end,
     })
 end
