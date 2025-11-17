@@ -126,17 +126,19 @@ return function(C, R, UI)
     })
 
     --------------------------------------------------------------------
-    -- Tunnel: raycast-based delete directly ahead (face + above + below)
+    -- Tunnel: raycast-based delete corridor ahead of player
     --------------------------------------------------------------------
 
     C.State.TunnelEnabled = C.State.TunnelEnabled or false
 
-    -- Distance to check ahead (studs)
+    -- Total forward distance to clear (studs)
     local TUNNEL_DISTANCE     = 10
     -- Max blocks to delete per step (face + above + below = 3)
     local TUNNEL_MAX_PER_STEP = 3
     -- Vertical range (studs) to look above/below the hit
     local VERTICAL_RANGE      = 5
+    -- Step size along the look direction (studs)
+    local SEGMENT_STEP        = 3
 
     local function getDeleteRoots()
         local roots = {}
@@ -160,6 +162,30 @@ return function(C, R, UI)
     tunnelParams.FilterType   = Enum.RaycastFilterType.Include
     tunnelParams.IgnoreWater  = true
 
+    -- Collect the main hit + blocks directly above and below it
+    local function collectVerticalColumnAt(hitPos, forward, distance, seen, hits)
+        if #hits >= TUNNEL_MAX_PER_STEP then return end
+
+        local function tryAddAtOffset(yOffset)
+            if #hits >= TUNNEL_MAX_PER_STEP then return end
+            local samplePos = hitPos + Vector3.new(0, yOffset, 0)
+            -- Short ray backwards into the block we want to delete
+            local result = WS:Raycast(samplePos, -forward * 4, tunnelParams)
+            if result and result.Instance then
+                local inst = result.Instance
+                if isTunnelCandidate(inst) and not seen[inst] then
+                    seen[inst] = true
+                    table.insert(hits, inst)
+                end
+            end
+        end
+
+        -- center (face-level), above, below
+        tryAddAtOffset(0)
+        tryAddAtOffset(4)
+        tryAddAtOffset(-4)
+    end
+
     local function tunnelStep()
         if not Destroy then return end
 
@@ -176,71 +202,38 @@ return function(C, R, UI)
         local right   = cf.RightVector
         local up      = cf.UpVector
 
-        -- Sample rays across a small cross-section in front of the player
-        local origins = {
-            pos + up * 2 + right * 1,
-            pos + up * 2 - right * 1,
-            pos + right * 1,
-            pos - right * 1,
-        }
-
         local seen = {}
         local hits = {}
 
-        local function markSeen(part)
-            if not part then return false end
-            if seen[part] then return false end
-            seen[part] = true
-            return true
-        end
+        -- March forward in small segments up to TUNNEL_DISTANCE
+        for seg = 0, TUNNEL_DISTANCE, SEGMENT_STEP do
+            if #hits >= TUNNEL_MAX_PER_STEP then break end
 
-        for _, origin in ipairs(origins) do
-            if #hits >= TUNNEL_MAX_PER_STEP then
-                break
-            end
+            local baseOrigin = pos + forward * seg
 
-            local result = WS:Raycast(origin, forward * TUNNEL_DISTANCE, tunnelParams)
-            if result and result.Instance then
-                local baseInst = result.Instance
-                if isTunnelCandidate(baseInst) and markSeen(baseInst) then
-                    table.insert(hits, baseInst)
+            local origins = {
+                baseOrigin + up * 2 + right * 1,
+                baseOrigin + up * 2 - right * 1,
+                baseOrigin + right * 1,
+                baseOrigin - right * 1,
+            }
 
-                    -- Center for vertical checks
-                    local hitPos = result.Position
+            for _, origin in ipairs(origins) do
+                if #hits >= TUNNEL_MAX_PER_STEP then break end
 
-                    -- Block above
-                    if #hits < TUNNEL_MAX_PER_STEP then
-                        local aboveResult = WS:Raycast(
-                            hitPos + up * 0.1,
-                            up * VERTICAL_RANGE,
-                            tunnelParams
-                        )
-                        if aboveResult and aboveResult.Instance then
-                            local aboveInst = aboveResult.Instance
-                            if isTunnelCandidate(aboveInst) and markSeen(aboveInst) then
-                                table.insert(hits, aboveInst)
-                            end
-                        end
-                    end
-
-                    -- Block below
-                    if #hits < TUNNEL_MAX_PER_STEP then
-                        local belowResult = WS:Raycast(
-                            hitPos - up * 0.1,
-                            -up * VERTICAL_RANGE,
-                            tunnelParams
-                        )
-                        if belowResult and belowResult.Instance then
-                            local belowInst = belowResult.Instance
-                            if isTunnelCandidate(belowInst) and markSeen(belowInst) then
-                                table.insert(hits, belowInst)
-                            end
-                        end
+                local result = WS:Raycast(origin, forward * SEGMENT_STEP, tunnelParams)
+                if result and result.Instance then
+                    local inst = result.Instance
+                    if isTunnelCandidate(inst) and not seen[inst] then
+                        seen[inst] = true
+                        -- Face block + above/below at this hit
+                        collectVerticalColumnAt(result.Position, forward, TUNNEL_DISTANCE, seen, hits)
                     end
                 end
             end
         end
 
+        -- Delete collected blocks
         for _, inst in ipairs(hits) do
             if inst and inst.Parent then
                 pcall(function()
