@@ -126,12 +126,16 @@ return function(C, R, UI)
     })
 
     --------------------------------------------------------------------
-    -- Tunnel: delete up to 2 blocks directly in front of player
+    -- Tunnel: fast raycast-based delete directly ahead
     --------------------------------------------------------------------
 
     C.State.TunnelEnabled = C.State.TunnelEnabled or false
 
-    -- roots we are allowed to delete from (same as deleteStep)
+    -- Distance to check ahead (studs)
+    local TUNNEL_DISTANCE = 3
+    -- Max blocks to delete per step
+    local TUNNEL_MAX_PER_STEP = 2
+
     local function getDeleteRoots()
         local roots = {}
         local built = WS:FindFirstChild("Built")
@@ -150,55 +154,58 @@ return function(C, R, UI)
         return true
     end
 
-    local function tunnelBoxCF()
-        local hrp = getHRP()
-        if not hrp or not hrp.Parent then return nil, nil end
-
-        -- center 3 studs in front of HRP, aligned to facing direction
-        local cf      = hrp.CFrame
-        local forward = cf.LookVector
-        local center  = hrp.Position + forward * 3
-
-        local boxCF   = CFrame.new(center, center + forward)
-        local boxSize = Vector3.new(4, 4, 4) -- small box ahead of player
-
-        return boxCF, boxSize
-    end
+    local tunnelParams = RaycastParams.new()
+    tunnelParams.FilterType   = Enum.RaycastFilterType.Include
+    tunnelParams.IgnoreWater  = true
 
     local function tunnelStep()
         if not Destroy then return end
 
-        local boxCF, boxSize = tunnelBoxCF()
-        if not boxCF then return end
+        local hrp = getHRP()
+        if not hrp or not hrp.Parent then return end
 
         local roots = getDeleteRoots()
         if #roots == 0 then return end
+        tunnelParams.FilterDescendantsInstances = roots
 
-        local params = OverlapParams.new()
-        params.FilterType = Enum.RaycastFilterType.Include
-        params.FilterDescendantsInstances = roots
+        local cf      = hrp.CFrame
+        local pos     = hrp.Position
+        local forward = cf.LookVector
+        local right   = cf.RightVector
+        local up      = cf.UpVector
 
-        local parts = WS:GetPartBoundsInBox(boxCF, boxSize, params)
-        if not parts or #parts == 0 then return end
+        -- A few sample rays across a small cross-section in front of player
+        local origins = {
+            pos + up * 2 + right * 1,
+            pos + up * 2 - right * 1,
+            pos + right * 1,
+            pos - right * 1,
+        }
 
-        local center = boxCF.Position
-        local candidates = {}
+        local seen = {}
+        local hits = {}
 
-        for _, p in ipairs(parts) do
-            if isTunnelCandidate(p) then
-                table.insert(candidates, p)
+        local function markSeen(part)
+            if not part then return false end
+            if seen[part] then return false end
+            seen[part] = true
+            return true
+        end
+
+        for _, origin in ipairs(origins) do
+            local result = WS:Raycast(origin, forward * TUNNEL_DISTANCE, tunnelParams)
+            if result and result.Instance then
+                local inst = result.Instance
+                if isTunnelCandidate(inst) and markSeen(inst) then
+                    table.insert(hits, inst)
+                    if #hits >= TUNNEL_MAX_PER_STEP then
+                        break
+                    end
+                end
             end
         end
 
-        if #candidates == 0 then return end
-
-        table.sort(candidates, function(a, b)
-            return (a.Position - center).Magnitude < (b.Position - center).Magnitude
-        end)
-
-        local toDelete = math.min(2, #candidates)
-        for i = 1, toDelete do
-            local inst = candidates[i]
+        for _, inst in ipairs(hits) do
             if inst and inst.Parent then
                 pcall(function()
                     Destroy:InvokeServer(inst)
@@ -218,6 +225,7 @@ return function(C, R, UI)
         end)
     end
 
+    private_stopTunnel = nil
     local function stopTunnel()
         C.State.TunnelEnabled = false
         if tunnelConn then
@@ -225,6 +233,7 @@ return function(C, R, UI)
             tunnelConn = nil
         end
     end
+    private_stopTunnel = stopTunnel
 
     tab:Toggle({
         Title = "Tunnel (Delete Ahead)",
