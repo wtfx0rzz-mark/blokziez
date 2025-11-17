@@ -1,6 +1,6 @@
 -- tab_build.lua
 -- Blokziez • Build tab: block picker + small/medium/large house builder
--- Grid-aligned and floor-snapped (raycast), no server raycast for placement
+-- Grid-aligned (no raycast)
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -133,8 +133,8 @@ return function(C, R, UI)
     ----------------------------------------------------------------------
     -- Grid snapping
     ----------------------------------------------------------------------
-    local GRID_SIZE = 4         -- size of one block cell in studs
-    local STEP_SIZE = GRID_SIZE -- step between block centers
+    local GRID_SIZE = 4      -- size of one block cell in studs
+    local STEP_SIZE = GRID_SIZE
 
     local function snapAxis(x)
         -- snap to nearest multiple of GRID_SIZE
@@ -147,27 +147,6 @@ return function(C, R, UI)
             snapAxis(v.Y),
             snapAxis(v.Z)
         )
-    end
-
-    ----------------------------------------------------------------------
-    -- Floor detection via raycast
-    ----------------------------------------------------------------------
-    local function getGroundOrigin(root)
-        local origin = root.Position
-
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Blacklist
-        params.FilterDescendantsInstances = { lp.Character }
-
-        -- Cast straight down to find the first surface under the player
-        local result = WS:Raycast(origin, Vector3.new(0, -1000, 0), params)
-        if result then
-            -- Snap the hit point (ground) to the grid, not the HRP
-            return snapToGrid(result.Position)
-        else
-            -- Fallback: snap HRP position if no ground hit (rare)
-            return snapToGrid(origin)
-        end
     end
 
     ----------------------------------------------------------------------
@@ -189,7 +168,7 @@ return function(C, R, UI)
     }
 
     ----------------------------------------------------------------------
-    -- House builder (uses floor-snapped & grid-snapped origin, no server raycast)
+    -- House builder (uses snapped HRP position as base, no raycast)
     ----------------------------------------------------------------------
     local function buildHouseAroundPlayer(sizeKey)
         if not Place or not baseplate then return end
@@ -201,8 +180,8 @@ return function(C, R, UI)
         local root = hrp()
         if not root then return end
 
-        -- Find ground below player, snap that to grid, and build from there
-        local origin  = getGroundOrigin(root)
+        -- Snap player position to grid so all blocks align to the world grid
+        local origin  = snapToGrid(root.Position)
         local basePos = origin
 
         local function placeFloor(dx, dy, dz)
@@ -233,7 +212,7 @@ return function(C, R, UI)
         end
 
         ------------------------------------------------------------------
-        -- Floor (filled, perfectly on the ground grid)
+        -- Floor (filled)
         ------------------------------------------------------------------
         for x = -half, half do
             for z = -half, half do
@@ -261,11 +240,11 @@ return function(C, R, UI)
         end
 
         ------------------------------------------------------------------
-        -- Triangular/pyramidal roof with 1-block eaves, grid-aligned
+        -- Triangular/pyramidal roof with 1-block eaves, snapped to grid
         ------------------------------------------------------------------
         local roofBaseY  = (wallLevels + 1) * STEP_SIZE
         local maxRadius  = half + 1         -- one extra for eaves
-        local roofLevels = maxRadius + 1    -- stepped up to a point
+        local roofLevels = maxRadius + 1    -- step up to a point
 
         for level = 0, roofLevels do
             local radius = maxRadius - level
@@ -299,21 +278,21 @@ return function(C, R, UI)
     })
 
     tab:Button({
-        Title = "Build SMALL House (grid+floor aligned)",
+        Title = "Build SMALL House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Small")
         end
     })
 
     tab:Button({
-        Title = "Build MEDIUM House (grid+floor aligned)",
+        Title = "Build MEDIUM House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Medium")
         end
     })
 
     tab:Button({
-        Title = "Build LARGE House (grid+floor aligned)",
+        Title = "Build LARGE House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Large")
         end
