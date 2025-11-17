@@ -1,5 +1,5 @@
 -- tab_build.lua
--- Blokziez • Build tab: material dropdown + house builder (walls only)
+-- Blokziez • Build tab: material dropdown + house builder (walls only, grid-aligned)
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -159,16 +159,21 @@ return function(C, R, UI)
     })
 
     ----------------------------------------------------------------------
-    -- Ground detection (for wall base height)
+    -- Ground detection + grid snapping (walls only, no floor)
     ----------------------------------------------------------------------
-    local HOUSE_BLOCK_HEIGHT = 4   -- assume 4x4x4 style blocks
-    local GRID_STEP          = 4   -- spacing between block centers
+    local BLOCK_SIZE = 2        -- approximate block height/width in studs
+    local STEP       = BLOCK_SIZE
+
+    local function snapToGrid(x)
+        local s = STEP
+        return math.floor((x / s) + 0.5) * s
+    end
 
     local function getBuildBase()
         local hrp = getHRP()
         if not hrp then return nil, nil end
 
-        -- Raycast straight down from just above the player
+        -- Raycast straight down to find the ground under player
         local origin = hrp.Position + Vector3.new(0, 5, 0)
         local dir    = Vector3.new(0, -1, 0) * 100
 
@@ -178,25 +183,32 @@ return function(C, R, UI)
         params.FilterDescendantsInstances = { lp.Character }
 
         local result = WS:Raycast(origin, dir, params)
-        local baseY
 
+        local groundY
         if result and result.Position then
-            -- Hit point is the floor surface; we want wall blocks to sit on that.
-            -- Center of first wall block = surfaceY + half block height.
-            baseY = result.Position.Y + (HOUSE_BLOCK_HEIGHT / 2)
+            groundY = result.Position.Y
         else
-            -- Fallback: just under the player
-            baseY = hrp.Position.Y - 3
+            groundY = hrp.Position.Y - BLOCK_SIZE
         end
 
-        local basePos = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
+        -- Center of the first wall row blocks should sit half a block above the ground.
+        local baseBlockY = groundY + (BLOCK_SIZE / 2)
+
+        local px = snapToGrid(hrp.Position.X)
+        local pz = snapToGrid(hrp.Position.Z)
+        local basePos = Vector3.new(px, baseBlockY, pz)
+
         local forward = hrp.CFrame.LookVector
+        if forward.Magnitude < 1e-3 then
+            forward = Vector3.new(0, 0, -1)
+        end
+        forward = Vector3.new(forward.X, 0, forward.Z).Unit
 
         return basePos, forward
     end
 
     ----------------------------------------------------------------------
-    -- House builder (walls + roof only)
+    -- House builder (walls + roof only, no floor)
     ----------------------------------------------------------------------
     local function buildBoxHouse(widthBlocks, depthBlocks, wallHeightBlocks)
         if not Place or not baseplate then return end
@@ -205,27 +217,31 @@ return function(C, R, UI)
         local basePos, forward = getBuildBase()
         if not basePos then return end
 
-        forward = forward.Unit
-        local right = Vector3.new(forward.Z, 0, -forward.X).Unit
-        local houseOffset = forward * (GRID_STEP * 2) -- push a bit in front of player
+        local right = Vector3.new(forward.Z, 0, -forward.X)
+        if right.Magnitude < 1e-3 then
+            right = Vector3.new(1, 0, 0)
+        end
+        right = right.Unit
 
+        local houseOffset = forward * (STEP * 2)
         local center = basePos + houseOffset
+        center = Vector3.new(snapToGrid(center.X), center.Y, snapToGrid(center.Z))
 
-        -- Force odd sizes so we have a true center
+        -- force odd sizes so there's a true center
         if widthBlocks % 2 == 0 then widthBlocks = widthBlocks + 1 end
         if depthBlocks % 2 == 0 then depthBlocks = depthBlocks + 1 end
 
         local halfW = (widthBlocks - 1) / 2
         local halfD = (depthBlocks - 1) / 2
 
-        -- Walls: bottom row starts exactly on the ground level we computed
+        -- Walls: bottom row is exactly sitting on the ground, no interior floor
         for iy = 0, wallHeightBlocks - 1 do
-            local yOffset = iy * HOUSE_BLOCK_HEIGHT
+            local yOffset = iy * BLOCK_SIZE
             for ix = -halfW, halfW do
                 for iz = -halfD, halfD do
                     local isEdge = (ix == -halfW or ix == halfW or iz == -halfD or iz == halfD)
                     if isEdge then
-                        local offset = (right * (ix * GRID_STEP)) + (forward * (iz * GRID_STEP))
+                        local offset = (right * (ix * STEP)) + (forward * (iz * STEP))
                         local pos    = center + offset + Vector3.new(0, yOffset, 0)
                         local cf     = CFrame.new(pos)
                         safePlace(blockName, cf)
@@ -234,11 +250,11 @@ return function(C, R, UI)
             end
         end
 
-        -- Roof (flat) on top of walls
-        local roofY = basePos.Y + (wallHeightBlocks * HOUSE_BLOCK_HEIGHT)
+        -- Roof (flat) above the last wall row
+        local roofY = basePos.Y + (wallHeightBlocks * BLOCK_SIZE)
         for ix = -halfW, halfW do
             for iz = -halfD, halfD do
-                local offset = (right * (ix * GRID_STEP)) + (forward * (iz * GRID_STEP))
+                local offset = (right * (ix * STEP)) + (forward * (iz * STEP))
                 local pos    = Vector3.new(center.X + offset.X, roofY, center.Z + offset.Z)
                 local cf     = CFrame.new(pos)
                 safePlace(blockName, cf)
@@ -246,6 +262,9 @@ return function(C, R, UI)
         end
     end
 
+    ----------------------------------------------------------------------
+    -- UI: House Builder
+    ----------------------------------------------------------------------
     tab:Section({ Title = "House Builder", Icon = "home" })
 
     tab:Button({
