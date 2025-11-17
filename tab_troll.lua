@@ -172,14 +172,12 @@ return function(C, R, UI)
         local dist = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT
         dist = math.clamp(dist, TUNNEL_DIST_MIN, TUNNEL_DIST_MAX)
 
-        -- We want the block in front of face, plus directly above and below.
-        -- Start the rays a bit in front of the HRP so we don't hit our own character.
         local baseOrigin = hrp.Position + forward * 2
 
         local origins = {
             baseOrigin,               -- center
-            baseOrigin + up * 4,      -- above (1 block up)
-            baseOrigin - up * 4,      -- below (1 block down / ground)
+            baseOrigin + up * 4,      -- above
+            baseOrigin - up * 4,      -- below
         }
 
         local seen  = {}
@@ -194,7 +192,6 @@ return function(C, R, UI)
         end
 
         for _, origin in ipairs(origins) do
-            -- First hit
             local result = WS:Raycast(origin, ahead, tunnelParams)
             if result and result.Instance then
                 local inst = result.Instance
@@ -203,7 +200,6 @@ return function(C, R, UI)
                     if #hits >= TUNNEL_MAX_PER_STEP then break end
                 end
             end
-            -- Optional: second ray a bit further forward to catch slightly deeper block
             if #hits < TUNNEL_MAX_PER_STEP then
                 local result2 = WS:Raycast(origin + forward * (dist * 0.5), ahead * 0.5, tunnelParams)
                 if result2 and result2.Instance then
@@ -270,7 +266,127 @@ return function(C, R, UI)
     })
 
     --------------------------------------------------------------------
-    -- Column spam
+    -- Trap: 4 walls + roof around 2x2 empty center (continuous spam)
+    --------------------------------------------------------------------
+
+    local TRAP_BLOCK          = "Black Wool"
+    local TRAP_BLOCK_SIZE     = 4    -- world grid (same as other blocks)
+    local TRAP_OUTER_HALF     = 2    -- outer grid range: -2..1
+    local TRAP_LEVELS_WALL    = 2    -- wall levels (0,1)
+    local TRAP_ROOF_LEVEL     = 2    -- roof at 3rd block up
+    local trapGeneration      = 0
+
+    C.State.TrapEnabled = C.State.TrapEnabled or false
+
+    local trapRayParams = RaycastParams.new()
+    trapRayParams.FilterType  = Enum.RaycastFilterType.Blacklist
+    trapRayParams.IgnoreWater = true
+
+    local function snapToGrid4(v)
+        local function snap(n)
+            return math.floor(n / TRAP_BLOCK_SIZE + 0.5) * TRAP_BLOCK_SIZE
+        end
+        return Vector3.new(snap(v.X), snap(v.Y), snap(v.Z))
+    end
+
+    local function getTrapBaseCenter()
+        local hrp = getHRP()
+        if not hrp then return nil end
+
+        local origin = hrp.Position
+        trapRayParams.FilterDescendantsInstances = { lp.Character }
+
+        local result = WS:Raycast(origin, Vector3.new(0, -100, 0), trapRayParams)
+        if result and result.Position then
+            -- Snap hit point to grid; treat that as ground center
+            local snapped = snapToGrid4(result.Position)
+            return snapped
+        end
+
+        -- Fallback: use HRP X/Z snapped, fixed Y if no ground found
+        local fallback = snapToGrid4(Vector3.new(origin.X, 2, origin.Z))
+        return fallback
+    end
+
+    local function computeTrapPositions()
+        local center = getTrapBaseCenter()
+        if not center then return {} end
+
+        local positions = {}
+
+        -- Walls: ring around 2x2 empty interior, for levels 0 and 1
+        for level = 0, TRAP_LEVELS_WALL - 1 do
+            local y = center.Y + level * TRAP_BLOCK_SIZE
+
+            for gx = -TRAP_OUTER_HALF, TRAP_OUTER_HALF - 1 do
+                for gz = -TRAP_OUTER_HALF, TRAP_OUTER_HALF - 1 do
+                    local inner = (gx >= -1 and gx <= 0 and gz >= -1 and gz <= 0)
+                    if not inner then
+                        local x = center.X + gx * TRAP_BLOCK_SIZE
+                        local z = center.Z + gz * TRAP_BLOCK_SIZE
+                        table.insert(positions, Vector3.new(x, y, z))
+                    end
+                end
+            end
+        end
+
+        -- Roof: full 4x4 plate at 3rd block up
+        local roofY = center.Y + TRAP_ROOF_LEVEL * TRAP_BLOCK_SIZE
+        for gx = -TRAP_OUTER_HALF, TRAP_OUTER_HALF - 1 do
+            for gz = -TRAP_OUTER_HALF, TRAP_OUTER_HALF - 1 do
+                local x = center.X + gx * TRAP_BLOCK_SIZE
+                local z = center.Z + gz * TRAP_BLOCK_SIZE
+                table.insert(positions, Vector3.new(x, roofY, z))
+            end
+        end
+
+        return positions
+    end
+
+    local function startTrap()
+        if not Place or not baseplate then return end
+        trapGeneration += 1
+        local myGen = trapGeneration
+
+        C.State.TrapEnabled = true
+
+        local positions = computeTrapPositions()
+        if #positions == 0 then
+            return
+        end
+
+        for _, pos in ipairs(positions) do
+            task.spawn(function()
+                local cf = CFrame.new(pos)
+                while C.State.TrapEnabled and trapGeneration == myGen do
+                    pcall(function()
+                        Place:InvokeServer(TRAP_BLOCK, cf, baseplate)
+                    end)
+                    Run.Heartbeat:Wait()
+                end
+            end)
+        end
+    end
+
+    local function stopTrap()
+        C.State.TrapEnabled = false
+        trapGeneration += 1 -- invalidate existing workers
+    end
+
+    tab:Toggle({
+        Title = "Trap (4 Walls + Roof)",
+        Value = C.State.TrapEnabled or false,
+        Callback = function(enabled)
+            if enabled then
+                startTrap()
+            else
+                stopTrap()
+            end
+        end,
+    })
+
+    --------------------------------------------------------------------
+    -- Column spam (always Black Wool)
     --------------------------------------------------------------------
 
     C.Config.ColumnMaxHeight = C.Config.ColumnMaxHeight or 20
@@ -282,7 +398,8 @@ return function(C, R, UI)
     local COLUMN_BLOCK_HEIGHT = 4
     local COLUMN_MIN_BLOCKS   = 5
 
-    local BLOCK_TYPES = { "Oak Planks", "Stone Bricks" }
+    -- Always Black Wool now
+    local BLOCK_TYPES = { "Black Wool" }
 
     local function randomBlockType()
         return BLOCK_TYPES[rng:NextInteger(1, #BLOCK_TYPES)]
@@ -329,6 +446,7 @@ return function(C, R, UI)
                     local cf = CFrame.new(state.base.X, y, state.base.Z)
 
                     pcall(function()
+                        -- Now always uses Black Wool
                         Place:InvokeServer(randomBlockType(), cf, baseplate)
                     end)
 
