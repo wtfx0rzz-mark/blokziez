@@ -145,6 +145,7 @@ return function(C, R, UI)
     local STEP_SIZE = GRID_SIZE
 
     local function snapAxis(x)
+        -- snap to nearest multiple of GRID_SIZE
         return math.floor(x / GRID_SIZE + 0.5) * GRID_SIZE
     end
 
@@ -154,19 +155,6 @@ return function(C, R, UI)
             snapAxis(v.Y),
             snapAxis(v.Z)
         )
-    end
-
-    -- Shared ground resolver:
-    -- If player Y < 5, treat that (snapped) Y as ground.
-    -- Otherwise, use baseplate top; fall back to player Y if no baseplate.
-    local function getGroundYFromPlayer(playerY)
-        if playerY < 5 then
-            return snapAxis(playerY)
-        end
-        if baseplate then
-            return snapAxis(baseplate.Position.Y + baseplate.Size.Y * 0.5)
-        end
-        return snapAxis(playerY)
     end
 
     ----------------------------------------------------------------------
@@ -200,9 +188,10 @@ return function(C, R, UI)
         local root = hrp()
         if not root then return end
 
-        local origin   = snapToGrid(root.Position)
-        local groundY  = getGroundYFromPlayer(root.Position.Y)
-        local basePos  = Vector3.new(origin.X, groundY, origin.Z)
+        -- Snap player position to grid so all blocks align to the world grid.
+        -- Always build the house at the player's snapped height (original behavior).
+        local origin  = snapToGrid(root.Position)
+        local basePos = origin
 
         local function placeFloor(dx, dy, dz)
             local cf = CFrame.new(
@@ -263,10 +252,7 @@ return function(C, R, UI)
         -- Triangular/pyramidal roof with 1-block eaves, snapped to grid
         -- HOLLOW: only perimeter + single apex block
         ------------------------------------------------------------------
-        local roofBaseY  = (wallLevels + 1) * STEP_SIZE + basePos.Y - groundY
-        -- Note: basePos.Y == groundY, so above simplifies to:
-        roofBaseY = (wallLevels + 1) * STEP_SIZE + basePos.Y
-
+        local roofBaseY  = (wallLevels + 1) * STEP_SIZE
         local maxRadius  = half + 1         -- one extra for eaves
         local roofLevels = maxRadius + 1    -- step up to a point
 
@@ -279,12 +265,14 @@ return function(C, R, UI)
             local y = roofBaseY + level * STEP_SIZE
 
             if radius == 0 then
-                placeRoof(0, y - basePos.Y, 0)
+                -- Single apex block
+                placeRoof(0, y, 0)
             else
+                -- Perimeter of the square at this radius
                 for x = -radius, radius do
                     for z = -radius, radius do
                         if math.abs(x) == radius or math.abs(z) == radius then
-                            placeRoof(x * STEP_SIZE, y - basePos.Y, z * STEP_SIZE)
+                            placeRoof(x * STEP_SIZE, y, z * STEP_SIZE)
                         end
                     end
                 end
@@ -301,18 +289,30 @@ return function(C, R, UI)
         local root = hrp()
         if not root then return end
 
-        local origin   = snapToGrid(root.Position)
-        local groundY  = getGroundYFromPlayer(root.Position.Y)
+        local origin = snapToGrid(root.Position)
 
+        -- Ground logic:
+        -- If we are below height 5, use that snapped value as ground.
+        -- Otherwise, use baseplate top (original behavior).
+        local groundY
+        if origin.Y < 5 then
+            groundY = origin.Y
+        else
+            groundY = snapAxis(baseplate.Position.Y + baseplate.Size.Y * 0.5)
+        end
+
+        -- Determine cardinal forward direction (aligned to grid) from HRP lookVector
         local look = root.CFrame.LookVector
         local stepDir
         local sideDir
 
         if math.abs(look.X) > math.abs(look.Z) then
+            -- Mostly X-direction
             local signX = (look.X >= 0) and 1 or -1
             stepDir = Vector3.new(signX * STEP_SIZE, 0, 0)
             sideDir = Vector3.new(0, 0, STEP_SIZE)
         else
+            -- Mostly Z-direction
             local signZ = (look.Z >= 0) and 1 or -1
             stepDir = Vector3.new(0, 0, signZ * STEP_SIZE)
             sideDir = Vector3.new(STEP_SIZE, 0, 0)
@@ -324,12 +324,14 @@ return function(C, R, UI)
         local stairBlock = getCurrentBlockName()
 
         while pos.Y > groundY and step < maxSteps do
+            -- Move one step forward and one step down
             pos = Vector3.new(
                 pos.X + stepDir.X,
                 pos.Y - STEP_SIZE,
                 pos.Z + stepDir.Z
             )
 
+            -- Two-wide: main block and one to the side
             local p1 = pos
             local p2 = Vector3.new(
                 pos.X + sideDir.X,
