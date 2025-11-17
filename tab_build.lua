@@ -1,28 +1,59 @@
 -- tab_build.lua
--- Blokziez • Build tab: block picker + small house builder
+-- Blokziez • Build tab: material dropdown + house builder (walls only)
 
 return function(C, R, UI)
     C  = C  or _G.C
     R  = R  or _G.R
     UI = UI or _G.UI
 
-    local Services = C and C.Services or {}
-    local Players  = Services.Players  or game:GetService("Players")
-    local RS       = Services.RS       or game:GetService("ReplicatedStorage")
-    local WS       = Services.WS       or game:GetService("Workspace")
+    assert(UI and UI.Tabs and UI.Tabs.Build, "tab_build.lua: Build tab missing")
 
-    local lp   = C.LocalPlayer or Players.LocalPlayer
-    local Tabs = (UI and UI.Tabs) or {}
-    local tab  = Tabs.Build
-    if not tab then return end
+    local tab      = UI.Tabs.Build
+    local Services = C.Services or {}
+    local Players  = Services.Players or game:GetService("Players")
+    local RS       = Services.RS      or game:GetService("ReplicatedStorage")
+    local WS       = Services.WS      or game:GetService("Workspace")
 
+    local lp = C.LocalPlayer or Players.LocalPlayer
+
+    C.State  = C.State  or {}
     C.Config = C.Config or {}
 
-    local EventsFolder = RS:WaitForChild("Events", 5)
-    local Place        = EventsFolder and EventsFolder:FindFirstChild("Place")
+    local EventsFolder = RS:WaitForChild("Events")
+    local Place        = EventsFolder:FindFirstChild("Place")
     local baseplate    = WS:FindFirstChild("Baseplate")
 
-    local BLOCK_ITEMS = {
+    ----------------------------------------------------------------------
+    -- Helpers
+    ----------------------------------------------------------------------
+    local function getHRP()
+        local char = lp.Character or lp.CharacterAdded:Wait()
+        return char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
+    end
+
+    local function extractNumber(v, min, max, default)
+        local nv = v
+        if type(v) == "table" then
+            nv = v.Value or v.Current or v.CurrentValue or v.Default or v.min or v.max
+        end
+        nv = tonumber(nv) or default
+        if min and max and nv then
+            nv = math.clamp(nv, min, max)
+        end
+        return nv
+    end
+
+    local function safePlace(blockName, cf)
+        if not (Place and baseplate and blockName) then return end
+        pcall(function()
+            Place:InvokeServer(blockName, cf, baseplate)
+        end)
+    end
+
+    ----------------------------------------------------------------------
+    -- Block dropdown
+    ----------------------------------------------------------------------
+    local BLOCK_TYPES = {
         "Birch Log",
         "Sandstone",
         "Rainbow Oak Planks",
@@ -74,6 +105,7 @@ return function(C, R, UI)
         "Orange Glass",
         "Gray Glass",
         "Grass",
+        "Destroy Blocks",
         "Spruce Planks",
         "Sand",
         "Magenta Wool",
@@ -92,6 +124,7 @@ return function(C, R, UI)
         "Spruce Fence Gate",
         "Magenta Glass",
         "Oak Fence",
+        "Cobblestone",
         "Birch Fence",
         "Birch Fence Gate",
         "Sponge",
@@ -105,104 +138,121 @@ return function(C, R, UI)
         "Blue Wool",
     }
 
-    local defaultBlock = C.Config.BuildBlockName
-    if type(defaultBlock) ~= "string" or defaultBlock == "" then
-        defaultBlock = "Oak Planks"
-    end
-    C.Config.BuildBlockName = defaultBlock
+    C.Config.BuildBlockName = C.Config.BuildBlockName or "Oak Planks"
 
-    local function hrp()
-        local ch = lp.Character or lp.CharacterAdded:Wait()
-        return ch and ch:FindFirstChild("HumanoidRootPart")
-    end
-
-    local function getBlockName()
-        local name = C.Config.BuildBlockName
-        if type(name) ~= "string" or name == "" then
-            return defaultBlock
-        end
-        return name
-    end
-
-    local function buildHouseAroundPlayer()
-        if not Place or not baseplate then return end
-
-        local ch   = lp.Character or lp.CharacterAdded:Wait()
-        local root = ch and ch:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-
-        local origin = root.Position
-
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = { ch }
-
-        local ray = WS:Raycast(origin + Vector3.new(0, 20, 0), Vector3.new(0, -200, 0), params)
-        local basePos = ray and ray.Position or origin
-        basePos = Vector3.new(basePos.X, basePos.Y, basePos.Z)
-
-        local step = 4
-        local half = 2
-
-        local function placeRel(dx, dy, dz)
-            local cf = CFrame.new(
-                basePos.X + dx,
-                basePos.Y + dy,
-                basePos.Z + dz
-            )
-            local blockName = getBlockName()
-            if Place and blockName and baseplate then
-                pcall(function()
-                    Place:InvokeServer(blockName, cf, baseplate)
-                end)
-            end
-        end
-
-        for x = -half, half do
-            for z = -half, half do
-                placeRel(x * step, 0, z * step)
-            end
-        end
-
-        local wallLevels = { step, step * 2, step * 3 }
-
-        for _, y in ipairs(wallLevels) do
-            for x = -half, half do
-                placeRel(x * step, y, -half * step)
-                placeRel(x * step, y,  half * step)
-            end
-            for z = -half + 1, half - 1 do
-                placeRel(-half * step, y, z * step)
-                placeRel( half * step, y, z * step)
-            end
-        end
-
-        local roofY = step * 4
-        for x = -half, half do
-            for z = -half, half do
-                placeRel(x * step, roofY, z * step)
-            end
-        end
-    end
-
-    tab:Section({ Title = "Builder" })
+    tab:Section({ Title = "Block Type", Icon = "box" })
 
     tab:Dropdown({
-        Title   = "Block Type",
-        Values  = BLOCK_ITEMS,
+        Title   = "Material",
+        Values  = BLOCK_TYPES,
         Multi   = false,
-        Default = defaultBlock,
-        Callback = function(value)
-            if type(value) == "string" and value ~= "" then
+        Default = C.Config.BuildBlockName,
+        Callback = function(choice)
+            local value = choice
+            if type(choice) == "table" then
+                value = choice[1] or choice.Value or choice.Current
+            end
+            if typeof(value) == "string" then
                 C.Config.BuildBlockName = value
             end
         end
     })
 
+    ----------------------------------------------------------------------
+    -- House builder (no raycast, no floor, slight hover like before)
+    ----------------------------------------------------------------------
+    local BLOCK_SIZE = 2
+    local STEP       = BLOCK_SIZE
+
+    -- Build a hollow rectangular house: walls + flat roof, no floor
+    local function buildBoxHouse(widthBlocks, depthBlocks, wallHeightBlocks)
+        if not Place or not baseplate then return end
+
+        local blockName = C.Config.BuildBlockName or "Oak Planks"
+        local hrp       = getHRP()
+        if not hrp then return end
+
+        -- Horizontal facing directions
+        local forward = hrp.CFrame.LookVector
+        if forward.Magnitude < 1e-4 then
+            forward = Vector3.new(0, 0, -1)
+        end
+        forward = Vector3.new(forward.X, 0, forward.Z).Unit
+
+        local right = Vector3.new(-forward.Z, 0, forward.X)
+        if right.Magnitude < 1e-4 then
+            right = Vector3.new(1, 0, 0)
+        end
+        right = right.Unit
+
+        -- This is the old behaviour that caused a slight hover; restoring it.
+        local baseY = hrp.Position.Y + (BLOCK_SIZE / 2)
+
+        -- Put the house a bit in front of the player
+        local center = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
+        center = center + forward * (STEP * 2)
+
+        -- Make odd sizes so we have a true center
+        if widthBlocks % 2 == 0 then widthBlocks  = widthBlocks  + 1 end
+        if depthBlocks % 2 == 0 then depthBlocks  = depthBlocks  + 1 end
+
+        local halfW = (widthBlocks  - 1) / 2
+        local halfD = (depthBlocks  - 1) / 2
+
+        -- Walls only
+        for iy = 0, wallHeightBlocks - 1 do
+            local yOffset = iy * BLOCK_SIZE
+
+            for ix = -halfW, halfW do
+                for iz = -halfD, halfD do
+                    local isEdge =
+                        (ix == -halfW or ix == halfW or iz == -halfD or iz == halfD)
+
+                    if isEdge then
+                        local offset = (right * (ix * STEP)) + (forward * (iz * STEP))
+                        local pos    = center + offset + Vector3.new(0, yOffset, 0)
+                        local cf     = CFrame.new(pos)
+                        safePlace(blockName, cf)
+                    end
+                end
+            end
+        end
+
+        -- Flat roof one block above top wall row
+        local roofY = baseY + (wallHeightBlocks * BLOCK_SIZE)
+        for ix = -halfW, halfW do
+            for iz = -halfD, halfD do
+                local offset = (right * (ix * STEP)) + (forward * (iz * STEP))
+                local pos    = Vector3.new(center.X + offset.X, roofY, center.Z + offset.Z)
+                local cf     = CFrame.new(pos)
+                safePlace(blockName, cf)
+            end
+        end
+    end
+
+    ----------------------------------------------------------------------
+    -- UI: House Builder buttons
+    ----------------------------------------------------------------------
+    tab:Section({ Title = "House Builder", Icon = "home" })
+
     tab:Button({
-        Title = "Build Small House Around Player",
+        Title = "Build Small House",
         Callback = function()
-            buildHouseAroundPlayer()
+            buildBoxHouse(7, 7, 4)
+        end
+    })
+
+    tab:Button({
+        Title = "Build Medium House",
+        Callback = function()
+            buildBoxHouse(11, 9, 5)
+        end
+    })
+
+    tab:Button({
+        Title = "Build Large House",
+        Callback = function()
+            buildBoxHouse(15, 11, 6)
         end
     })
 end
