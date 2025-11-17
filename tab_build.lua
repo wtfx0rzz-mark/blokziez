@@ -22,9 +22,6 @@ return function(C, R, UI)
     local Place        = EventsFolder and EventsFolder:FindFirstChild("Place")
     local baseplate    = WS:FindFirstChild("Baseplate")
 
-    ----------------------------------------------------------------------
-    -- Block list from your backpack scan
-    ----------------------------------------------------------------------
     local BLOCK_ITEMS = {
         "Birch Log",
         "Sandstone",
@@ -108,9 +105,6 @@ return function(C, R, UI)
         "Blue Wool",
     }
 
-    ----------------------------------------------------------------------
-    -- Helpers
-    ----------------------------------------------------------------------
     local defaultBlock = C.Config.BuildBlockName
     if type(defaultBlock) ~= "string" or defaultBlock == "" then
         defaultBlock = "Oak Planks"
@@ -122,14 +116,6 @@ return function(C, R, UI)
         return ch and ch:FindFirstChild("HumanoidRootPart")
     end
 
-    local function getBlockName()
-        local name = C.Config.BuildBlockName
-        if type(name) ~= "string" or name == "" then
-            return defaultBlock
-        end
-        return name
-    end
-
     local function safePlace(blockName, cf)
         if not (Place and baseplate and blockName) then return end
         pcall(function()
@@ -137,68 +123,96 @@ return function(C, R, UI)
         end)
     end
 
-    ----------------------------------------------------------------------
-    -- House builder (uses HRP position as base, no raycast)
-    ----------------------------------------------------------------------
-    local function buildHouseAroundPlayer()
+    local FLOOR_BLOCK = "Oak Planks"
+    local WALL_BLOCK  = "Bricks"
+    local ROOF_BLOCK  = "Stone"
+
+    local STEP_SIZE = 4
+
+    local HOUSE_SIZES = {
+        Small  = { half = 2, wallLevels = 3 }, -- 5x5 footprint
+        Medium = { half = 3, wallLevels = 4 }, -- 7x7 footprint
+        Large  = { half = 4, wallLevels = 5 }, -- 9x9 footprint
+    }
+
+    local function buildHouseAroundPlayer(sizeKey)
         if not Place or not baseplate then return end
+
+        local cfg = HOUSE_SIZES[sizeKey or "Small"] or HOUSE_SIZES.Small
+        local half       = cfg.half
+        local wallLevels = cfg.wallLevels
 
         local root = hrp()
         if not root then return end
 
-        local origin = root.Position
-        -- Treat origin as the center of the floor grid.
-        -- This is the pre-raycast style: just align relative to HRP.
+        local origin  = root.Position
         local basePos = Vector3.new(origin.X, origin.Y, origin.Z)
 
-        local step = 4         -- distance between block centers
-        local half = 2         -- results in a 5x5 footprint
-        local blockName = getBlockName()
-
-        local function placeRel(dx, dy, dz)
+        local function placeFloor(dx, dy, dz)
             local cf = CFrame.new(
                 basePos.X + dx,
                 basePos.Y + dy,
                 basePos.Z + dz
             )
-            safePlace(blockName, cf)
+            safePlace(FLOOR_BLOCK, cf)
         end
 
-        -- Floor (5x5)
+        local function placeWall(dx, dy, dz)
+            local cf = CFrame.new(
+                basePos.X + dx,
+                basePos.Y + dy,
+                basePos.Z + dz
+            )
+            safePlace(WALL_BLOCK, cf)
+        end
+
+        local function placeRoof(dx, dy, dz)
+            local cf = CFrame.new(
+                basePos.X + dx,
+                basePos.Y + dy,
+                basePos.Z + dz
+            )
+            safePlace(ROOF_BLOCK, cf)
+        end
+
         for x = -half, half do
             for z = -half, half do
-                placeRel(x * step, 0, z * step)
+                placeFloor(x * STEP_SIZE, 0, z * STEP_SIZE)
             end
         end
 
-        -- Walls – three levels high
-        local wallLevels = { step, step * 2, step * 3 }
+        for level = 1, wallLevels do
+            local y = level * STEP_SIZE
 
-        for _, y in ipairs(wallLevels) do
-            -- Front/back walls
             for x = -half, half do
-                placeRel(x * step, y, -half * step)
-                placeRel(x * step, y,  half * step)
+                placeWall(x * STEP_SIZE, y, -half * STEP_SIZE)
+                placeWall(x * STEP_SIZE, y,  half * STEP_SIZE)
             end
-            -- Left/right walls (excluding corners so they don't double-place)
+
             for z = -half + 1, half - 1 do
-                placeRel(-half * step, y, z * step)
-                placeRel( half * step, y, z * step)
+                placeWall(-half * STEP_SIZE, y, z * STEP_SIZE)
+                placeWall( half * STEP_SIZE, y, z * STEP_SIZE)
             end
         end
 
-        -- Roof (5x5)
-        local roofY = step * 4
-        for x = -half, half do
-            for z = -half, half do
-                placeRel(x * step, roofY, z * step)
+        local roofBaseY   = (wallLevels + 1) * STEP_SIZE
+        local maxRadius   = half + 1
+        local roofLevels  = maxRadius + 1
+
+        for level = 0, roofLevels do
+            local radius = maxRadius - level
+            if radius < 0 then break end
+
+            local y = roofBaseY + level * STEP_SIZE
+
+            for x = -radius, radius do
+                for z = -radius, radius do
+                    placeRoof(x * STEP_SIZE, y, z * STEP_SIZE)
+                end
             end
         end
     end
 
-    ----------------------------------------------------------------------
-    -- UI
-    ----------------------------------------------------------------------
     tab:Section({ Title = "Builder" })
 
     tab:Dropdown({
@@ -216,7 +230,21 @@ return function(C, R, UI)
     tab:Button({
         Title = "Build Small House Around Player",
         Callback = function()
-            buildHouseAroundPlayer()
+            buildHouseAroundPlayer("Small")
+        end
+    })
+
+    tab:Button({
+        Title = "Build Medium House Around Player",
+        Callback = function()
+            buildHouseAroundPlayer("Medium")
+        end
+    })
+
+    tab:Button({
+        Title = "Build Large House Around Player",
+        Callback = function()
+            buildHouseAroundPlayer("Large")
         end
     })
 end
