@@ -271,7 +271,7 @@ return function(C, R, UI)
 
     C.Config.ColumnMaxHeight = C.Config.ColumnMaxHeight or 20
     C.Config.ColumnRadius    = C.Config.ColumnRadius    or 50
-    C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 40
+    C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 100
 
     local rng                 = Random.new()
     local COLUMN_BASE_Y       = 2
