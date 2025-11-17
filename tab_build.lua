@@ -159,30 +159,12 @@ return function(C, R, UI)
     })
 
     ----------------------------------------------------------------------
-    -- Ground + house geometry (walls only, no floor)
+    -- House builder (no raycast, no floor, slight hover like before)
     ----------------------------------------------------------------------
     local BLOCK_SIZE = 2
     local STEP       = BLOCK_SIZE
 
-    -- Raycast straight down from a position to get the ground height
-    local function getGroundY(originPos)
-        local origin = originPos + Vector3.new(0, 5, 0)
-        local dir    = Vector3.new(0, -1, 0) * 100
-
-        local params = RaycastParams.new()
-        params.FilterType                 = Enum.RaycastFilterType.Exclude
-        params.IgnoreWater                = true
-        params.FilterDescendantsInstances = { lp.Character }
-
-        local result = WS:Raycast(origin, dir, params)
-        if result and result.Position then
-            return result.Position.Y
-        end
-        -- Fallback: assume ground a bit below the player
-        return originPos.Y - (BLOCK_SIZE * 2)
-    end
-
-    -- Build a hollow rectangular house: walls + flat roof
+    -- Build a hollow rectangular house: walls + flat roof, no floor
     local function buildBoxHouse(widthBlocks, depthBlocks, wallHeightBlocks)
         if not Place or not baseplate then return end
 
@@ -203,24 +185,21 @@ return function(C, R, UI)
         end
         right = right.Unit
 
-        -- Find ground directly under the player
-        local groundY = getGroundY(hrp.Position)
+        -- This is the old behaviour that caused a slight hover; restoring it.
+        local baseY = hrp.Position.Y + (BLOCK_SIZE / 2)
 
-        -- Center of the bottom wall row (block center): sit directly on ground
-        local baseBlockY = groundY + (BLOCK_SIZE / 2)
-
-        -- Put the house a bit in front of the player, not on top of them
-        local center = Vector3.new(hrp.Position.X, baseBlockY, hrp.Position.Z)
+        -- Put the house a bit in front of the player
+        local center = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
         center = center + forward * (STEP * 2)
 
-        -- Force odd sizes so we have a true center
+        -- Make odd sizes so we have a true center
         if widthBlocks % 2 == 0 then widthBlocks  = widthBlocks  + 1 end
         if depthBlocks % 2 == 0 then depthBlocks  = depthBlocks  + 1 end
 
         local halfW = (widthBlocks  - 1) / 2
         local halfD = (depthBlocks  - 1) / 2
 
-        -- Walls: bottom row sits at baseBlockY; no floor layer
+        -- Walls only
         for iy = 0, wallHeightBlocks - 1 do
             local yOffset = iy * BLOCK_SIZE
 
@@ -239,8 +218,8 @@ return function(C, R, UI)
             end
         end
 
-        -- Flat roof one block above the top wall row
-        local roofY = baseBlockY + (wallHeightBlocks * BLOCK_SIZE)
+        -- Flat roof one block above top wall row
+        local roofY = baseY + (wallHeightBlocks * BLOCK_SIZE)
         for ix = -halfW, halfW do
             for iz = -halfD, halfD do
                 local offset = (right * (ix * STEP)) + (forward * (iz * STEP))
@@ -252,14 +231,13 @@ return function(C, R, UI)
     end
 
     ----------------------------------------------------------------------
-    -- UI: House Builder
+    -- UI: House Builder buttons
     ----------------------------------------------------------------------
     tab:Section({ Title = "House Builder", Icon = "home" })
 
     tab:Button({
         Title = "Build Small House",
         Callback = function()
-            -- small: tighter footprint, low roof
             buildBoxHouse(7, 7, 4)
         end
     })
