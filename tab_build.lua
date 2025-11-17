@@ -1,6 +1,6 @@
 -- tab_build.lua
 -- Blokziez • Build tab: block picker + small/medium/large house builder
--- Grid-aligned, anchored on block below player when present
+-- Grid-aligned (no raycast)
 
 return function(C, R, UI)
     C  = C  or _G.C
@@ -94,7 +94,7 @@ return function(C, R, UI)
         "Dark Stone Bricks",
         "Gold Ore",
         "Spruce Fence Gate",
-        "Magenta Wool",
+        "Magenta Glass",
         "Oak Fence",
         "Birch Fence",
         "Birch Fence Gate",
@@ -131,12 +131,13 @@ return function(C, R, UI)
     end
 
     ----------------------------------------------------------------------
-    -- Grid settings
+    -- Grid snapping
     ----------------------------------------------------------------------
-    local GRID_SIZE = 4
+    local GRID_SIZE = 4      -- size of one block cell in studs
     local STEP_SIZE = GRID_SIZE
 
     local function snapAxis(x)
+        -- snap to nearest multiple of GRID_SIZE
         return math.floor(x / GRID_SIZE + 0.5) * GRID_SIZE
     end
 
@@ -146,35 +147,6 @@ return function(C, R, UI)
             snapAxis(v.Y),
             snapAxis(v.Z)
         )
-    end
-
-    -- Snap X/Z only (used as fallback when no block is under player)
-    local function snapToGridXZ(v)
-        local snappedX = snapAxis(v.X)
-        local snappedZ = snapAxis(v.Z)
-        return Vector3.new(snappedX, v.Y, snappedZ)
-    end
-
-    ----------------------------------------------------------------------
-    -- Anchor from block below player if possible
-    ----------------------------------------------------------------------
-    local function getBuildOrigin(root)
-        local origin = root.Position
-
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Blacklist
-        params.FilterDescendantsInstances = { lp.Character }
-
-        -- Look for a block directly beneath the player
-        local result = WS:Raycast(origin, Vector3.new(0, -20, 0), params)
-        if result and result.Instance then
-            local hitPart = result.Instance
-            -- Use the hit block's center as the exact anchor, snapped to grid
-            return snapToGrid(hitPart.Position)
-        else
-            -- Fallback: original behavior, but snap X/Z to grid
-            return snapToGridXZ(origin)
-        end
     end
 
     ----------------------------------------------------------------------
@@ -187,7 +159,7 @@ return function(C, R, UI)
     ----------------------------------------------------------------------
     -- Logical house sizes (in blocks), then scaled
     ----------------------------------------------------------------------
-    local SCALE = 3
+    local SCALE = 3   -- linear scale factor for all sizes
 
     local HOUSE_SIZES = {
         Small  = { half = 2, wallLevels = 3 }, -- base: 5x5 footprint
@@ -196,7 +168,7 @@ return function(C, R, UI)
     }
 
     ----------------------------------------------------------------------
-    -- House builder
+    -- House builder (uses snapped HRP position as base, no raycast)
     ----------------------------------------------------------------------
     local function buildHouseAroundPlayer(sizeKey)
         if not Place or not baseplate then return end
@@ -208,8 +180,8 @@ return function(C, R, UI)
         local root = hrp()
         if not root then return end
 
-        -- Prefer block under player, otherwise HRP-based origin
-        local origin  = getBuildOrigin(root)
+        -- Snap player position to grid so all blocks align to the world grid
+        local origin  = snapToGrid(root.Position)
         local basePos = origin
 
         local function placeFloor(dx, dy, dz)
@@ -240,7 +212,7 @@ return function(C, R, UI)
         end
 
         ------------------------------------------------------------------
-        -- Floor (centered on anchor block)
+        -- Floor (filled)
         ------------------------------------------------------------------
         for x = -half, half do
             for z = -half, half do
@@ -249,7 +221,7 @@ return function(C, R, UI)
         end
 
         ------------------------------------------------------------------
-        -- Walls
+        -- Walls (hollow interior)
         ------------------------------------------------------------------
         for level = 1, wallLevels do
             local y = level * STEP_SIZE
@@ -268,11 +240,11 @@ return function(C, R, UI)
         end
 
         ------------------------------------------------------------------
-        -- Triangular/pyramidal roof with 1-block overhang
+        -- Triangular/pyramidal roof with 1-block eaves, snapped to grid
         ------------------------------------------------------------------
         local roofBaseY  = (wallLevels + 1) * STEP_SIZE
-        local maxRadius  = half + 1
-        local roofLevels = maxRadius + 1
+        local maxRadius  = half + 1         -- one extra for eaves
+        local roofLevels = maxRadius + 1    -- step up to a point
 
         for level = 0, roofLevels do
             local radius = maxRadius - level
@@ -306,21 +278,21 @@ return function(C, R, UI)
     })
 
     tab:Button({
-        Title = "Build SMALL House (block anchor)",
+        Title = "Build SMALL House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Small")
         end
     })
 
     tab:Button({
-        Title = "Build MEDIUM House (block anchor)",
+        Title = "Build MEDIUM House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Medium")
         end
     })
 
     tab:Button({
-        Title = "Build LARGE House (block anchor)",
+        Title = "Build LARGE House (grid aligned)",
         Callback = function()
             buildHouseAroundPlayer("Large")
         end
