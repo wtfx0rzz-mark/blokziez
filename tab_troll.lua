@@ -43,6 +43,10 @@ return function(C, R, UI)
         return nv
     end
 
+    --------------------------------------------------------------------
+    -- Delete blocks around player
+    --------------------------------------------------------------------
+
     local DELETE_RADIUS_DEFAULT = 30
     local DELETE_MAX_PER_STEP   = 200
 
@@ -120,6 +124,123 @@ return function(C, R, UI)
             end
         end,
     })
+
+    --------------------------------------------------------------------
+    -- Tunnel: delete up to 2 blocks directly in front of player
+    --------------------------------------------------------------------
+
+    C.State.TunnelEnabled = C.State.TunnelEnabled or false
+
+    -- roots we are allowed to delete from (same as deleteStep)
+    local function getDeleteRoots()
+        local roots = {}
+        local built = WS:FindFirstChild("Built")
+        if built then table.insert(roots, built) end
+
+        local personal = WS:FindFirstChild(lp.Name)
+        if personal then table.insert(roots, personal) end
+
+        return roots
+    end
+
+    local function isTunnelCandidate(part)
+        if not (part and part:IsA("BasePart")) then return false end
+        if part == baseplate then return false end
+        if part:IsDescendantOf(lp.Character) then return false end
+        return true
+    end
+
+    local function tunnelBoxCF()
+        local hrp = getHRP()
+        if not hrp or not hrp.Parent then return nil, nil end
+
+        -- center 3 studs in front of HRP, aligned to facing direction
+        local cf      = hrp.CFrame
+        local forward = cf.LookVector
+        local center  = hrp.Position + forward * 3
+
+        local boxCF   = CFrame.new(center, center + forward)
+        local boxSize = Vector3.new(4, 4, 4) -- small box ahead of player
+
+        return boxCF, boxSize
+    end
+
+    local function tunnelStep()
+        if not Destroy then return end
+
+        local boxCF, boxSize = tunnelBoxCF()
+        if not boxCF then return end
+
+        local roots = getDeleteRoots()
+        if #roots == 0 then return end
+
+        local params = OverlapParams.new()
+        params.FilterType = Enum.RaycastFilterType.Include
+        params.FilterDescendantsInstances = roots
+
+        local parts = WS:GetPartBoundsInBox(boxCF, boxSize, params)
+        if not parts or #parts == 0 then return end
+
+        local center = boxCF.Position
+        local candidates = {}
+
+        for _, p in ipairs(parts) do
+            if isTunnelCandidate(p) then
+                table.insert(candidates, p)
+            end
+        end
+
+        if #candidates == 0 then return end
+
+        table.sort(candidates, function(a, b)
+            return (a.Position - center).Magnitude < (b.Position - center).Magnitude
+        end)
+
+        local toDelete = math.min(2, #candidates)
+        for i = 1, toDelete do
+            local inst = candidates[i]
+            if inst and inst.Parent then
+                pcall(function()
+                    Destroy:InvokeServer(inst)
+                end)
+            end
+        end
+    end
+
+    local tunnelConn = nil
+
+    local function startTunnel()
+        if tunnelConn or not Destroy then return end
+        C.State.TunnelEnabled = true
+        tunnelConn = Run.Heartbeat:Connect(function()
+            if not C.State.TunnelEnabled then return end
+            tunnelStep()
+        end)
+    end
+
+    local function stopTunnel()
+        C.State.TunnelEnabled = false
+        if tunnelConn then
+            tunnelConn:Disconnect()
+            tunnelConn = nil
+        end
+    end
+
+    tab:Toggle({
+        Title = "Tunnel (Delete Ahead)",
+        Value = false,
+        Callback = function(enabled)
+            if enabled then
+                startTunnel()
+            else
+                stopTunnel()
+            end
+        end,
+    })
+
+    --------------------------------------------------------------------
+    -- Column spam
+    --------------------------------------------------------------------
 
     C.Config.ColumnMaxHeight = C.Config.ColumnMaxHeight or 20
     C.Config.ColumnRadius    = C.Config.ColumnRadius    or 50
