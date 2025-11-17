@@ -23,6 +23,11 @@ return function(C, R, UI)
     C.State.Toggles    = C.State.Toggles or {}
     C.State.AuraRadius = C.State.AuraRadius or 150
 
+    -- Default: player highlight ON
+    if C.State.Toggles.PlayerTracker == nil then
+        C.State.Toggles.PlayerTracker = true
+    end
+
     ----------------------------------------------------------------------
     -- Helpers
     ----------------------------------------------------------------------
@@ -1024,7 +1029,7 @@ return function(C, R, UI)
 
     tab:Toggle({
         Title = "Highlight Players",
-        Value = C.State.Toggles.PlayerTracker or false,
+        Value = C.State.Toggles.PlayerTracker,
         Callback = function(on)
             C.State.Toggles.PlayerTracker = on
             if on then
