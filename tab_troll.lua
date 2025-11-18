@@ -264,6 +264,9 @@ return function(C, R, UI)
         end)
     end
 
+    private = private or {}
+    private.startTunnel = startTunnel
+
     local function stopTunnel()
         C.State.TunnelEnabled = false
         if tunnelConn then
@@ -294,6 +297,140 @@ return function(C, R, UI)
         Callback = function(v)
             local nv = extractNumber(v, TUNNEL_DIST_MIN, TUNNEL_DIST_MAX, TUNNEL_DIST_DEFAULT)
             C.Config.TunnelDistance = nv
+        end,
+    })
+
+    --------------------------------------------------------------------
+    -- Wide Tunnel: 5 high x 2 wide, up to 1000 studs
+    --------------------------------------------------------------------
+
+    local WIDE_TUNNEL_DIST_DEFAULT = 3
+    local WIDE_TUNNEL_DIST_MIN     = 1
+    local WIDE_TUNNEL_DIST_MAX     = 1000
+    local WIDE_TUNNEL_MAX_PER_STEP = 30  -- 5 high * 2 wide, plus mid-ray hits
+
+    C.Config.WideTunnelDistance = C.Config.WideTunnelDistance or WIDE_TUNNEL_DIST_DEFAULT
+    C.State.WideTunnelEnabled   = C.State.WideTunnelEnabled   or false
+
+    local wideTunnelConn = nil
+
+    local function wideTunnelStep()
+        if not (Destroy and C.State.WideTunnelEnabled) then return end
+
+        local hrp = getHRP()
+        if not hrp or not hrp.Parent then return end
+
+        local roots = getDeleteRoots()
+        if #roots == 0 then return end
+        tunnelParams.FilterDescendantsInstances = roots
+
+        local cf      = hrp.CFrame
+        local forward = cf.LookVector
+        local up      = cf.UpVector
+        local right   = cf.RightVector
+
+        local dist = C.Config.WideTunnelDistance or WIDE_TUNNEL_DIST_DEFAULT
+        dist = math.clamp(dist, WIDE_TUNNEL_DIST_MIN, WIDE_TUNNEL_DIST_MAX)
+
+        local baseOrigin = hrp.Position + forward * 2
+
+        -- 5 high (±8, ±4, 0) and 2 wide (center + one side)
+        local verticalOffsets = { -8, -4, 0, 4, 8 }
+        local horizontalOffsets = {
+            Vector3.new(0, 0, 0),
+            right * 4,
+        }
+
+        local origins = {}
+        for _, vOff in ipairs(verticalOffsets) do
+            for _, hOff in ipairs(horizontalOffsets) do
+                origins[#origins+1] = baseOrigin + up * vOff + hOff
+            end
+        end
+
+        local seen  = {}
+        local hits  = {}
+        local ahead = forward * dist
+
+        local function markSeen(part)
+            if not part then return false end
+            if seen[part] then return false end
+            seen[part] = true
+            return true
+        end
+
+        for _, origin in ipairs(origins) do
+            if #hits >= WIDE_TUNNEL_MAX_PER_STEP then break end
+
+            local result = WS:Raycast(origin, ahead, tunnelParams)
+            if result and result.Instance then
+                local inst = result.Instance
+                if isTunnelCandidate(inst) and markSeen(inst) then
+                    table.insert(hits, inst)
+                    if #hits >= WIDE_TUNNEL_MAX_PER_STEP then break end
+                end
+            end
+
+            if #hits < WIDE_TUNNEL_MAX_PER_STEP then
+                local result2 = WS:Raycast(origin + forward * (dist * 0.5), ahead * 0.5, tunnelParams)
+                if result2 and result2.Instance then
+                    local inst2 = result2.Instance
+                    if isTunnelCandidate(inst2) and markSeen(inst2) then
+                        table.insert(hits, inst2)
+                        if #hits >= WIDE_TUNNEL_MAX_PER_STEP then break end
+                    end
+                end
+            end
+        end
+
+        for _, inst in ipairs(hits) do
+            if inst and inst.Parent then
+                pcall(function()
+                    Destroy:InvokeServer(inst)
+                end)
+            end
+        end
+    end
+
+    local function startWideTunnel()
+        if wideTunnelConn or not Destroy then return end
+        C.State.WideTunnelEnabled = true
+        wideTunnelConn = Run.Heartbeat:Connect(function()
+            if not C.State.WideTunnelEnabled then return end
+            wideTunnelStep()
+        end)
+    end
+
+    local function stopWideTunnel()
+        C.State.WideTunnelEnabled = false
+        if wideTunnelConn then
+            wideTunnelConn:Disconnect()
+            wideTunnelConn = nil
+        end
+    end
+
+    tab:Toggle({
+        Title = "Wide Tunnel (5 High x 2 Wide)",
+        Value = C.State.WideTunnelEnabled or false,
+        Callback = function(enabled)
+            if enabled then
+                startWideTunnel()
+            else
+                stopWideTunnel()
+            end
+        end,
+    })
+
+    tab:Slider({
+        Title = "Wide Tunnel Distance",
+        Value = {
+            Min     = WIDE_TUNNEL_DIST_MIN,
+            Max     = WIDE_TUNNEL_DIST_MAX,
+            Default = C.Config.WideTunnelDistance or WIDE_TUNNEL_DIST_DEFAULT,
+        },
+        Callback = function(v)
+            local nv = extractNumber(v, WIDE_TUNNEL_DIST_MIN, WIDE_TUNNEL_DIST_MAX, WIDE_TUNNEL_DIST_DEFAULT)
+            C.Config.WideTunnelDistance = nv
         end,
     })
 
