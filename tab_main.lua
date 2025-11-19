@@ -529,7 +529,7 @@ return function(C, R, UI)
     ----------------------------------------------------------------------
     -- Fly
     ----------------------------------------------------------------------
-    local flyEnabled       = false
+    local flyEnabled       = true   -- default ON
     local FLYING           = false
     local flySpeed         = 3
 
@@ -739,7 +739,7 @@ return function(C, R, UI)
     ----------------------------------------------------------------------
     -- Noclip
     ----------------------------------------------------------------------
-    local noclipEnabled = false
+    local noclipEnabled = true  -- default ON
     local noclipConn
 
     local function startNoclip()
@@ -845,7 +845,7 @@ return function(C, R, UI)
 
     tab:Toggle({
         Title = "Fly",
-        Value = false,
+        Value = true,  -- default ON
         Callback = function(state)
             flyEnabled = state and true or false
             if flyEnabled then
@@ -897,7 +897,7 @@ return function(C, R, UI)
 
     tab:Toggle({
         Title = "Noclip",
-        Value = false,
+        Value = true,  -- default ON
         Callback = function(state)
             if state then
                 startNoclip()
@@ -1043,6 +1043,16 @@ return function(C, R, UI)
     if C.State.Toggles.PlayerTracker then
         startPlayerTracker()
     end
+
+    ----------------------------------------------------------------------
+    -- Enable defaults on first load
+    ----------------------------------------------------------------------
+    -- Fly ON by default
+    flyEnabled = true
+    startFly()
+
+    -- Noclip ON by default
+    startNoclip()
 
     ----------------------------------------------------------------------
     -- Character respawn handling
