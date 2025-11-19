@@ -170,7 +170,7 @@ return function(C, R, UI)
 
     local TUNNEL_DIST_DEFAULT   = 3
     local TUNNEL_DIST_MIN       = 1
-    local TUNNEL_DIST_MAX       = 50  -- increased from 15 to 50
+    local TUNNEL_DIST_MAX       = 50  -- 1..50
     local TUNNEL_MAX_PER_STEP   = 6   -- up to 2 blocks per ray * 3 vertical rays
 
     C.Config.TunnelDistance = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT
@@ -304,9 +304,9 @@ return function(C, R, UI)
     -- Wide Tunnel: 5 high x 2 wide, up to 1000 studs
     --------------------------------------------------------------------
 
-    local WIDE_TUNNEL_DIST_DEFAULT = 3
-    local WIDE_TUNNEL_DIST_MIN     = 1
     local WIDE_TUNNEL_DIST_MAX     = 1000
+    local WIDE_TUNNEL_DIST_MIN     = 1
+    local WIDE_TUNNEL_DIST_DEFAULT = WIDE_TUNNEL_DIST_MAX  -- default = max (1000)
     local WIDE_TUNNEL_MAX_PER_STEP = 30  -- 5 high * 2 wide, plus mid-ray hits
 
     C.Config.WideTunnelDistance = C.Config.WideTunnelDistance or WIDE_TUNNEL_DIST_DEFAULT
@@ -440,7 +440,7 @@ return function(C, R, UI)
 
     C.Config.ColumnMaxHeight = C.Config.ColumnMaxHeight or 20
     C.Config.ColumnRadius    = C.Config.ColumnRadius    or 50
-    C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 100
+    C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 100  -- more threads
 
     local rng                 = Random.new()
     local COLUMN_BASE_Y       = 2
@@ -513,7 +513,7 @@ return function(C, R, UI)
 
             if enabled and not columnWorkersSpawned then
                 columnWorkersSpawned = true
-                local workers = C.Config.ColumnWorkers or 40
+                local workers = C.Config.ColumnWorkers or 100
                 for _ = 1, workers do
                     task.spawn(columnWorker)
                 end
@@ -551,7 +551,7 @@ return function(C, R, UI)
     -- Player / NPC Aura lock + autoswing (game.Players targets)
     --------------------------------------------------------------------
 
-    local AURA_RADIUS_DEFAULT         = 60
+    local AURA_RADIUS_DEFAULT         = 10   -- default TP/Hit range = 10
     local AURA_RADIUS_MIN             = 5
     local AURA_RADIUS_MAX             = 300
     local AURA_SWING_INTERVAL_DEFAULT = 0.01  -- your tweaked speed
@@ -612,6 +612,9 @@ return function(C, R, UI)
         if not (model and myHRP) then return false end
         if not model:IsA("Model") then return false end
 
+        -- Target must still exist in Workspace (avoid "stuck" when player leaves)
+        if not model:IsDescendantOf(WS) then return false end
+
         local myChar = lp.Character or lp.CharacterAdded:Wait()
         if model == myChar then return false end
         if AURA_WHITELIST[model.Name] then return false end
@@ -624,6 +627,7 @@ return function(C, R, UI)
 
         local part = getHRP(model)
         if not part then return false end
+        if not part:IsDescendantOf(WS) then return false end
 
         local dist = (part.Position - myHRP.Position).Magnitude
         if dist > currentAuraRadius() then return false end
@@ -688,6 +692,11 @@ return function(C, R, UI)
             return
         end
 
+        -- If target's model is gone from Workspace, drop it immediately
+        if auraTarget and (not auraTarget.Parent or not auraTarget:IsDescendantOf(WS)) then
+            auraTarget = nil
+        end
+
         -- Refresh / validate target periodically
         auraTargetAcc = auraTargetAcc + dt
         if auraTargetAcc >= AURA_TARGET_REFRESH then
@@ -699,22 +708,27 @@ return function(C, R, UI)
 
         -- Lock-on movement
         if auraTarget then
-            local tPart = getHRP(auraTarget)
-            if tPart then
-                local desiredPos   = tPart.Position - tPart.CFrame.LookVector * 3
-                local distToTarget = (tPart.Position - hrp.Position).Magnitude
+            if not auraTarget:IsDescendantOf(WS) then
+                auraTarget = nil
+            else
+                local tPart = getHRP(auraTarget)
+                if tPart and tPart:IsDescendantOf(WS) then
+                    local desiredPos   = tPart.Position - tPart.CFrame.LookVector * 3
+                    local distToTarget = (tPart.Position - hrp.Position).Magnitude
 
-                if distToTarget > currentAuraRadius() + 5 then
-                    auraTarget = nil
-                else
-                    if distToTarget > AURA_MAX_TELEPORT_STEP then
+                    if distToTarget > currentAuraRadius() + 5 then
                         auraTarget = nil
                     else
-                        hrp.CFrame = CFrame.new(desiredPos, tPart.Position)
+                        if distToTarget > AURA_MAX_TELEPORT_STEP then
+                            auraTarget = nil
+                        else
+                            hrp.CFrame = CFrame.new(desiredPos, tPart.Position)
+                        end
                     end
+                else
+                    -- HRP disappeared (e.g., player left) -> drop target so you are not stuck
+                    auraTarget = nil
                 end
-            else
-                auraTarget = nil
             end
         end
 
@@ -762,7 +776,7 @@ return function(C, R, UI)
         Value = {
             Min     = AURA_RADIUS_MIN,
             Max     = AURA_RADIUS_MAX,
-            Default = C.Config.AuraRadius or AURA_RADIUS_DEFAULT,
+            Default = C.Config.AuraRadius or AURA_RADIUS_DEFAULT,  -- default 10
         },
         Callback = function(v)
             local nv = extractNumber(v, AURA_RADIUS_MIN, AURA_RADIUS_MAX, AURA_RADIUS_DEFAULT)
