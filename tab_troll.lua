@@ -76,14 +76,8 @@ return function(C, R, UI)
     end
 
     --------------------------------------------------------------------
-    -- Delete blocks around player
+    -- Common roots for deletion
     --------------------------------------------------------------------
-
-    local DELETE_RADIUS_DEFAULT = 30
-    local DELETE_MAX_PER_STEP   = 200
-
-    C.Config.DeleteRadius = C.Config.DeleteRadius or DELETE_RADIUS_DEFAULT
-
     local function getDeleteRoots()
         local roots = {}
         local built = WS:FindFirstChild("Built")
@@ -94,6 +88,15 @@ return function(C, R, UI)
 
         return roots
     end
+
+    --------------------------------------------------------------------
+    -- Delete blocks around player
+    --------------------------------------------------------------------
+
+    local DELETE_RADIUS_DEFAULT = 30
+    local DELETE_MAX_PER_STEP   = 200
+
+    C.Config.DeleteRadius = C.Config.DeleteRadius or DELETE_RADIUS_DEFAULT
 
     local function deleteStep()
         if not Destroy then return end
@@ -139,7 +142,7 @@ return function(C, R, UI)
         deleteLoopRunning = true
 
         task.spawn(function()
-            while deleteLoopRunning and C.State.DeleteBlocksEnabled do
+            while deleteLoopRunning and C.State.DeleteBlocksEnabled then
                 deleteStep()
                 Run.Heartbeat:Wait()
             end
@@ -160,6 +163,72 @@ return function(C, R, UI)
                 startDeleteLoop()
             else
                 stopDeleteLoop()
+            end
+        end,
+    })
+
+    --------------------------------------------------------------------
+    -- Global delete: delete every block under roots, everywhere
+    --------------------------------------------------------------------
+
+    local GLOBAL_DELETE_MAX_PER_STEP = 400
+
+    C.State.GlobalDeleteEnabled = C.State.GlobalDeleteEnabled or false
+
+    local globalDeleteConn = nil
+
+    local function globalDeleteStep()
+        if not (Destroy and C.State.GlobalDeleteEnabled) then return end
+
+        local roots = getDeleteRoots()
+        if #roots == 0 then return end
+
+        local deleted = 0
+
+        for _, root in ipairs(roots) do
+            if not C.State.GlobalDeleteEnabled then return end
+
+            for _, inst in ipairs(root:GetDescendants()) do
+                if not C.State.GlobalDeleteEnabled then return end
+                if deleted >= GLOBAL_DELETE_MAX_PER_STEP then
+                    return
+                end
+
+                if inst:IsA("BasePart") then
+                    pcall(function()
+                        Destroy:InvokeServer(inst)
+                    end)
+                    deleted += 1
+                end
+            end
+        end
+    end
+
+    local function startGlobalDelete()
+        if globalDeleteConn or not Destroy then return end
+        C.State.GlobalDeleteEnabled = true
+        globalDeleteConn = Run.Heartbeat:Connect(function()
+            if not C.State.GlobalDeleteEnabled then return end
+            globalDeleteStep()
+        end)
+    end
+
+    local function stopGlobalDelete()
+        C.State.GlobalDeleteEnabled = false
+        if globalDeleteConn then
+            globalDeleteConn:Disconnect()
+            globalDeleteConn = nil
+        end
+    end
+
+    tab:Toggle({
+        Title = "Delete All Blocks (Global)",
+        Value = C.State.GlobalDeleteEnabled or false,
+        Callback = function(enabled)
+            if enabled then
+                startGlobalDelete()
+            else
+                stopGlobalDelete()
             end
         end,
     })
