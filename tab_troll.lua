@@ -30,6 +30,7 @@ return function(C, R, UI)
     -- HRP helper (player or model)
     --------------------------------------------------------------------
     local function getHRP(model)
+        -- Player HRP (no argument)
         if not model then
             local char = lp.Character or lp.CharacterAdded:Wait()
             local hrp  = char:FindFirstChild("HumanoidRootPart")
@@ -39,6 +40,7 @@ return function(C, R, UI)
             return char:WaitForChild("HumanoidRootPart")
         end
 
+        -- Model HRP (target)
         if not model:IsA("Model") then
             return nil
         end
@@ -74,7 +76,7 @@ return function(C, R, UI)
     end
 
     --------------------------------------------------------------------
-    -- Common roots for deletion
+    -- Delete roots helper
     --------------------------------------------------------------------
     local function getDeleteRoots()
         local roots = {}
@@ -166,7 +168,7 @@ return function(C, R, UI)
     })
 
     --------------------------------------------------------------------
-    -- Global delete: delete every block under roots, everywhere
+    -- Global delete: delete every block under roots, continuously
     --------------------------------------------------------------------
 
     local GLOBAL_DELETE_MAX_PER_STEP = 400
@@ -237,8 +239,8 @@ return function(C, R, UI)
 
     local TUNNEL_DIST_DEFAULT   = 3
     local TUNNEL_DIST_MIN       = 1
-    local TUNNEL_DIST_MAX       = 50
-    local TUNNEL_MAX_PER_STEP   = 6
+    local TUNNEL_DIST_MAX       = 50  -- 1..50
+    local TUNNEL_MAX_PER_STEP   = 6   -- up to 2 blocks per ray * 3 vertical rays
 
     C.Config.TunnelDistance = C.Config.TunnelDistance or TUNNEL_DIST_DEFAULT
     C.State.TunnelEnabled   = C.State.TunnelEnabled   or false
@@ -274,9 +276,9 @@ return function(C, R, UI)
         local baseOrigin = hrp.Position + forward * 2
 
         local origins = {
-            baseOrigin,
-            baseOrigin + up * 4,
-            baseOrigin - up * 4,
+            baseOrigin,               -- center
+            baseOrigin + up * 4,      -- above
+            baseOrigin - up * 4,      -- below
         }
 
         local seen  = {}
@@ -373,8 +375,8 @@ return function(C, R, UI)
 
     local WIDE_TUNNEL_DIST_MAX     = 1000
     local WIDE_TUNNEL_DIST_MIN     = 1
-    local WIDE_TUNNEL_DIST_DEFAULT = WIDE_TUNNEL_DIST_MAX
-    local WIDE_TUNNEL_MAX_PER_STEP = 30
+    local WIDE_TUNNEL_DIST_DEFAULT = WIDE_TUNNEL_DIST_MAX  -- default = max (1000)
+    local WIDE_TUNNEL_MAX_PER_STEP = 30  -- 5 high * 2 wide, plus mid-ray hits
 
     C.Config.WideTunnelDistance = C.Config.WideTunnelDistance or WIDE_TUNNEL_DIST_DEFAULT
     C.State.WideTunnelEnabled   = C.State.WideTunnelEnabled   or false
@@ -401,6 +403,7 @@ return function(C, R, UI)
 
         local baseOrigin = hrp.Position + forward * 2
 
+        -- 5 high (±8, ±4, 0) and 2 wide (center + one side)
         local verticalOffsets = { -8, -4, 0, 4, 8 }
         local horizontalOffsets = {
             Vector3.new(0, 0, 0),
@@ -506,7 +509,7 @@ return function(C, R, UI)
 
     C.Config.ColumnMaxHeight = C.Config.ColumnMaxHeight or 20
     C.Config.ColumnRadius    = C.Config.ColumnRadius    or 50
-    C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 100
+    C.Config.ColumnWorkers   = C.Config.ColumnWorkers   or 100  -- more threads
 
     local rng                 = Random.new()
     local COLUMN_BASE_Y       = 2
@@ -617,10 +620,10 @@ return function(C, R, UI)
     -- Player / NPC Aura lock + autoswing (game.Players targets)
     --------------------------------------------------------------------
 
-    local AURA_RADIUS_DEFAULT         = 10
+    local AURA_RADIUS_DEFAULT         = 10   -- default TP/Hit range = 10
     local AURA_RADIUS_MIN             = 5
     local AURA_RADIUS_MAX             = 300
-    local AURA_SWING_INTERVAL_DEFAULT = 0.01
+    local AURA_SWING_INTERVAL_DEFAULT = 0.01  -- your tweaked speed
     local AURA_MAX_TELEPORT_STEP      = 80
     local AURA_TARGET_REFRESH         = 0.15
 
@@ -678,6 +681,7 @@ return function(C, R, UI)
         if not (model and myHRP) then return false end
         if not model:IsA("Model") then return false end
 
+        -- Target must still exist in Workspace (avoid "stuck" when player leaves)
         if not model:IsDescendantOf(WS) then return false end
 
         local myChar = lp.Character or lp.CharacterAdded:Wait()
@@ -707,6 +711,7 @@ return function(C, R, UI)
         local bestDist = currentAuraRadius()
         local myChar = lp.Character or lp.CharacterAdded:Wait()
 
+        -- 1) Other real players' characters
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= lp and not AURA_WHITELIST[p.Name] then
                 local char = p.Character
@@ -723,6 +728,7 @@ return function(C, R, UI)
             end
         end
 
+        -- 2) Any Model directly under game.Players that isn't our own character
         for _, obj in ipairs(Players:GetChildren()) do
             if obj:IsA("Model") and obj ~= myChar and not AURA_WHITELIST[obj.Name] then
                 if isValidAuraTarget(obj, myHRP) then
@@ -755,10 +761,12 @@ return function(C, R, UI)
             return
         end
 
+        -- If target's model is gone from Workspace, drop it immediately
         if auraTarget and (not auraTarget.Parent or not auraTarget:IsDescendantOf(WS)) then
             auraTarget = nil
         end
 
+        -- Refresh / validate target periodically
         auraTargetAcc = auraTargetAcc + dt
         if auraTargetAcc >= AURA_TARGET_REFRESH then
             auraTargetAcc = 0
@@ -767,6 +775,7 @@ return function(C, R, UI)
             end
         end
 
+        -- Lock-on movement
         if auraTarget then
             if not auraTarget:IsDescendantOf(WS) then
                 auraTarget = nil
@@ -786,11 +795,13 @@ return function(C, R, UI)
                         end
                     end
                 else
+                    -- HRP disappeared (e.g., player left) -> drop target so you are not stuck
                     auraTarget = nil
                 end
             end
         end
 
+        -- Auto-swing (always on when aura is enabled)
         auraAttackAcc = auraAttackAcc + dt
         local interval = C.Config.AuraSwingInterval or AURA_SWING_INTERVAL_DEFAULT
         if auraAttackAcc >= interval then
@@ -834,7 +845,7 @@ return function(C, R, UI)
         Value = {
             Min     = AURA_RADIUS_MIN,
             Max     = AURA_RADIUS_MAX,
-            Default = C.Config.AuraRadius or AURA_RADIUS_DEFAULT,
+            Default = C.Config.AuraRadius or AURA_RADIUS_DEFAULT,  -- default 10
         },
         Callback = function(v)
             local nv = extractNumber(v, AURA_RADIUS_MIN, AURA_RADIUS_MAX, AURA_RADIUS_DEFAULT)
